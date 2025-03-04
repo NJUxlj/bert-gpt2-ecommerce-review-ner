@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 
-
+from src.models.bert.modeling_bert import BertModel
+from src.models.gpt2.modeling_gpt2 import GPT2Model
 
 
 class BertGpt2EncoderDecoder(nn.Module):  
