@@ -185,6 +185,26 @@ class GPT2Attention(nn.Module):
         self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
         self.layer_idx = layer_idx
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
+        
+        '''
+        c_attn和q_attn:
+            是用于将输入特征投影到查询（Query）、键（Key）和值（Value）空间的线性变换层。
+        
+        在自注意力机制中（is_cross_attention=False），
+            c_attn是一个将输入特征同时投影到Q、K、V三个空间的线性层，输出维度是3 * embed_dim。
+        
+        在交叉注意力机制中（is_cross_attention=True），
+            c_attn仅用于投影K和V，输出维度是2 * embed_dim。
+        
+        q_attn:
+            仅在交叉注意力机制中使用，用于单独投影Q，输出维度是embed_dim。
+        
+        
+        Conv1D的原理：
+
+            虽然名字叫Conv1D，但它实际上是一个线性变换层（全连接层），而不是传统的卷积层。
+            它的实现是将输入特征的最后一个维度通过矩阵乘法变换到目标维度。
+        '''
 
         if self.is_cross_attention:
             self.c_attn = Conv1D(2 * self.embed_dim, self.embed_dim)
