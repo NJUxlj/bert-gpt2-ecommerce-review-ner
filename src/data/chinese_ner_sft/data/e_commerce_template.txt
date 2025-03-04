@@ -1,0 +1,85 @@
+prompt_template:
+这是一个电商行业的实体识别的任务, 需要识别的实体类型有 {candidate_entity_names}. 文本如下:
+------------
+{text}
+------------
+
+输出格式如下:
+EntityText: 文本, 必须来自于原文本中的实体文本.
+EntityLabel: 实体类型, 实体文本对应的类别, 必须是给定的实体类型之一, 不要编造.
+
+Tips:
+1. 尽可能多的输出实体. EntityText 和 EntityLabel 分别占一行.
+2. 没有实体时可回答: 没有找到任何实体.
+
+response_template:
+{entity_list}
+
+kwargs:
+{"entity_list_sep": "\n", "entity_template": "EntityText: {entity_text}\nEntityLabel: {entity_name}", "candidate_entity_names_sep": ", ", "no_entity_template": "没有找到任何实体. "}
+
+--- [define prompt template end] ---
+
+prompt_template:
+请从以下文本中识别电商行业的实体.
+可供参考的类型有 {candidate_entity_names}. 文本如下:
+------------
+{text}
+------------
+
+提示:
+1. 输出所有的相关实体.
+2. 没有实体时可回答: 没有找到任何相关的实体.
+
+按以下格式输出实体:
+EntityText: 文本, 必须来自于原文本中的实体文本.
+EntityLabel: 实体类型, 实体文本对应的类别, 必须是给定的实体类型之一, 不要编造.
+
+response_template:
+{entity_list}
+
+kwargs:
+{"entity_list_sep": "\n", "entity_template": "EntityText: {entity_text}\nEntityLabel: {entity_name}", "candidate_entity_names_sep": ", ", "no_entity_template": "没有找到任何实体. "}
+
+--- [define prompt template end] ---
+
+prompt_template:
+从电商标题中识别实体, 例如 {candidate_entity_names}.
+标题为: {text}
+
+提示:
+1. 尽可能找到所有的实体.
+2. 如果没有实体请回答: 没有实体.
+
+按以下格式输出实体:
+text: 实体文本.
+label: 实体类型, 必须是给定的实体类型之一, 不要编造.
+
+response_template:
+{entity_list}
+
+kwargs:
+{"entity_list_sep": "\n", "entity_template": "EntityText: {entity_text}\nEntityLabel: {entity_name}", "candidate_entity_names_sep": ", ", "no_entity_template": "没有实体. "}
+
+--- [define prompt template end] ---
+
+prompt_template:
+提取以下文本中的 {candidate_entity_names} 。
+
+所需格式：
+text：实体文本。
+label：实体类型，必须是给定的实体类型之一，不要编造。
+
+提示：
+1. 尽可能找到所有的实体。
+2. 如果没有实体请回答：没有实体。
+
+输入：{text}
+
+response_template:
+{entity_list}
+
+kwargs:
+{"entity_list_sep": "\n", "entity_template": "text: {entity_text}\nlabel: {entity_name}", "candidate_entity_names_sep": "，", "no_entity_template": "没有实体。"}
+
+--- [define prompt template end] ---
