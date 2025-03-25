@@ -127,6 +127,15 @@ bert-gpt2-ecommerce-review-ner
 
 ```
 
+
+
+- chinese_ner_sft 中的数据示例
+
+```Plain Text
+{"text": "雄争霸点卡/七雄争霸元宝/七雄争霸100元1000元宝直充,自动充值", "entities": [{"start_idx": 3, "end_idx": 5, "entity_text": "点卡", "entity_label": "HCCX", "entity_names": ["产品", "商品", "产品名称", "商品名称"]}, {"start_idx": 6, "end_idx": 10, "entity_text": "七雄争霸", "entity_label": "MISC", "entity_names": ["其它实体"]}, {"start_idx": 10, "end_idx": 12, "entity_text": "元宝", "entity_label": "HCCX", "entity_names": ["产品", "商品", "产品名称", "商品名称"]}, {"start_idx": 13, "end_idx": 17, "entity_text": "七雄争霸", "entity_label": "MISC", "entity_names": ["其它实体"]}, {"start_idx": 17, "end_idx": 21, "entity_text": "100元", "entity_label": "MISC", "entity_names": ["其它实体"]}, {"start_idx": 21, "end_idx": 25, "entity_text": "1000", "entity_label": "MISC", "entity_names": ["其它实体"]}, {"start_idx": 25, "end_idx": 27, "entity_text": "元宝", "entity_label": "HCCX", "entity_names": ["产品", "商品", "产品名称", "商品名称"]}], "data_source": "ECommerce"}
+
+```
+
 ## Citation
 
 
