@@ -70,7 +70,7 @@ class MoEModel(nn.Module):
         
         # tok_k_weights.shape = (batch_size, seq_len, top_k), 其中一个token对应的topk-weights 为 [0.2, 0.8]
         # tok_k_indices.shape = (batch_size, seq_len, top_k)， 其中一个token对应的topk-weights 为 [0, 1]
-        top_k_weights, topk_indices = probs.topk(probs, dim=-1)
+        top_k_weights, top_k_indices = probs.topk(probs, dim=-1)
         
         
         # 专家处理
@@ -80,6 +80,51 @@ class MoEModel(nn.Module):
 
         # 确保每个token都能对应一个形状为 (num_experts, hidden_size) 的矩阵
         expert_outputs = torch.stack(expert_outputs, dim=2)  # (batch_size, seq_len, num_experts, hidden_size)
+
+
+        # 专家输出的稀疏组合  
+        batch_size, seq_len, _ = x.size()   # 输入形状：x.shape=(B,S,H)
+        # 将三维输入展平为二维索引：(batch_size*seq_len, 1)
+        # 分解计算步骤（假设 B=2, S=3, K=2, N=4）
+        # 1. 生成基础偏移量矩阵
+        base_offset =  torch.arange(batch_size*seq_len, device=x.device). \
+                            unsqueeze(-1) \
+                            *self.num_experts \
+                            .view(batch_size, seq_len, 1)
+        # top_k_indices形状：(B,S,K) → 展平后：(B*S*K,)
+        # 最终flat_indices形状：(B,S,K)
+        
+        # 2. 广播相加（关键作用：为每个token生成独立索引空间）
+            # 原来的 expert top_k_indices 的基础上， 加上 token 索引
+            # 本质上来说， 就是让每个token的token索引与expert索引挂钩
+        flat_indices = top_k_indices + base_offset  # 广播规则：(B,S,K) + (B,S,1) → (B,S,K)
+        
+        
+
+        selected_outputs = expert_outputs.view(-1, self.num_experts, self.hidden_size)[   # 展平为：(B*S, N, H)
+            flat_indices.view(-1, self.top_k)  # 索引形状：(B*S, K)
+        ].view(batch_size, seq_len, self.top_k, self.hidden_size)  # 恢复形状 → (B,S,K,H)
+        
+        # 加权求和（爱因斯坦求和约定）：
+        output = torch.einsum('bstk,bst->bsth', selected_outputs, top_k_weights).sum(dim=-2)  
+        # selected_outputs形状：(B,S,K,H), top_k_weights形状：(B,S,K)
+        # einsum结果形状：(B,S,H) → sum后保持形状不变
+        
+        # 平衡损失计算（专家负载均衡控制，防止专家坍塌）  
+        # 计算专家使用频率（沿batch和sequence维度平均）
+        expert_usage = prots.mean(dim=[0,1])  # 形状：(num_experts,)  # 输入prots形状：(B,S,N) → 输出形状：(N,)
+        # 计算熵形式的平衡损失（鼓励均匀分布）
+        self.balance_loss = (expert_usage * torch.log(expert_usage + 1e-12)).sum()  # 标量值
+
+        '''
+        该损失函数的作用：
+
+        1. 当某些专家长期不被选择时（usage→0），log(usage)→-∞，但usage*log(usage)→0
+        2. 当所有专家使用率相等时（usage=1/num_experts），熵值最大
+        3. 通过最小化该损失，可以防止"专家坍塌"（少数专家主导整个模型）
+        '''
+        
+        return output  
         
 
 class BertMoEQwen2PreTrainedModel(PreTrainedModel):
