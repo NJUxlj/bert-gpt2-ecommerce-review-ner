@@ -1,26 +1,5 @@
 
-
-CHINESE_NER_DATA_PATH = f"./src/data/chinese_ner_sft/data"
-
-
-NER_DATA_PATH = f"./src/data/ner_data"
-
-
-SCHEMA_PATH = f"./src/data/ner_data/schema.json"
-
-
-BERT_MODEL_PATH = "D:\\models\\bert-base-chinese"
-QWEN2_MODEL_PATH = ""
-
-
-
-SFT_MODEL_PATH = ""
-
-
-HYBRID_MODEL_PATH = ""
-
-
-sft_config = {
+{
     "model_path": "path/to/pretrained_model",
     "bert_model_name": "bert-base-chinese",
     "max_seq_length": 128,

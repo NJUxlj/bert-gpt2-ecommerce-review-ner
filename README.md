@@ -136,6 +136,37 @@ bert-gpt2-ecommerce-review-ner
 
 ```
 
+- chinese_ner_sft 中的实体类型：
+```
+"ECommerce": {
+            # 点卡
+            "HCCX": ["产品", "商品", "产品名称", "商品名称"],
+            # 地名, 数值, 金额, 重量, 数量.
+            "MISC": ["其它实体"],
+            "HPPX": ["品牌"],
+            "XH": ["型号", "产品型号"],
+        },
+
+```
+
+- chinese_ner_sft 中的schema.json
+```
+
+{
+    "O": 0,
+    "B-HCCX": 1,
+    "B-MISC": 2,
+    "B-HPPX": 3,
+    "B-XH": 4,
+    "I-HCCX": 5,
+    "I-MISC": 6,
+    "I-HPPX": 7,
+    "I-XH": 8
+  }
+
+
+```
+
 ## Citation
 
 

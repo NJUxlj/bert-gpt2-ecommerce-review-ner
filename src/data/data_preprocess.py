@@ -52,12 +52,17 @@ def validate_entity(text: str, entity: EntityAnnotation) -> bool:
 
 def convert_entities_to_bio(text: str, entities: List[EntityAnnotation], scheme: str = "BIO") -> List[str]:  
     """  
-    将实体标注转换为字符级别的标签序列  
+    将实体标注 (如，HCCX) 转换为字符级别的标签序列  (如，B-HCCX, I-HCCX, O)
     scheme: BIO (默认) 或 BILOU  
     """  
     labels = ["O"] * len(text)  
     
     # 按起始位置排序  
+    '''
+    主排序条件（x.start_idx）：按实体的起始位置升序排列，确保先处理文本中靠前的实体
+
+    次排序条件（-x.end_idx）：当起始位置相同时，按结束位置降序排列（即较长的实体优先处理）。这是为了处理嵌套实体场景：
+    '''
     sorted_entities = sorted(entities, key=lambda x: (x.start_idx, -x.end_idx))  
     
     # 排除冲突标注  
@@ -95,7 +100,17 @@ class NERDataProcessor:
         self.max_length = max_length  
         
         # 动态构建label词汇表  
-        self.label_map = label_vocab or {"O": 0}  
+        self.label_map = label_vocab or {
+                                            "O": 0,
+                                            "B-HCCX": 1,
+                                            "B-MISC": 2,
+                                            "B-HPPX": 3,
+                                            "B-XH": 4,
+                                            "I-HCCX": 5,
+                                            "I-MISC": 6,
+                                            "I-HPPX": 7,
+                                            "I-XH": 8
+                                        } 
         self._verify_label_scheme()  
 
     def _verify_label_scheme(self):  
