@@ -1,11 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical 
 
 import os
 import random
-import numpy as np
+import numpy as np  
 
+
+from typing import Dict, List, Optional, Tuple, Union, Literal
 from src.models.bert.modeling_bert import BertModel
 # from src.models.gpt2.modeling_gpt2 import GPT2Model
 
@@ -15,6 +18,9 @@ from src.models.qwen2.modeling_qwen2 import Qwen2Model, Qwen2ForTokenClassificat
 
 from src.models.qwen2.configuration_qwen2 import Qwen2Config
 from src.models.bert.configuration_bert import BertConfig
+
+
+from src.configs.config import BERT_MODEL_PATH, QWEN2_MODEL_PATH
 
 
 from transformers import (
@@ -27,7 +33,34 @@ from dataclasses import dataclass
 
 @dataclass
 class NerConfig:
-    num_ner_labels: int
+    
+    ner_data_type:Literal["chinese_ner_sft", "simple_ner"] = "chinese_ner_sft"
+    
+    label2id:Dict = {
+        "O": 0,
+        "B-HCCX": 1,
+        "B-MISC": 2,
+        "B-HPPX": 3,
+        "B-XH": 4,
+        "I-HCCX": 5,
+        "I-MISC": 6,
+        "I-HPPX": 7,
+        "I-XH": 8
+    } if ner_data_type == "chinese_ner_sft" else {
+        "B-LOCATION": 0,
+        "B-ORGANIZATION": 1,
+        "B-PERSON": 2,
+        "B-TIME": 3,
+        "I-LOCATION": 4,
+        "I-ORGANIZATION": 5,
+        "I-PERSON": 6,
+        "I-TIME": 7,
+        "O": 8
+    }
+    
+    num_ner_labels: int = len(label2id.keys())
+    
+
     
     
     
@@ -143,7 +176,7 @@ class MoEModel(nn.Module):
 class BertMoEQwen2PreTrainedModel(PreTrainedModel):
     config_class = Qwen2Config  # 暂时借用一下qwen2的config
     base_model_prefix = "model"
-    supports_gradient_checkpointing = True
+    supports_gradient_checkpointing = True  
     def __init__():
         super().__init__()
         
@@ -166,25 +199,126 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
     '''
     def __init__(self, bert_config: BertConfig, qwen_config:Qwen2Config, ner_config:NerConfig):
         super().__init__()  
-
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
+        self.id2label = {i: tag for i, tag in enumerate(ner_config.label2id)}
+        
+        
         self.num_ner_labels = ner_config.num_ner_labels
         self.encoder = BertModel.from_pretrained(config = bert_config)
-        self.decoder = Qwen2ForTokenClassification.from_pretrained(config = qwen_config)
-        self.classifier = nn.Linear(qwen_config.hidden_size, self.num_ner_labels)
+        self.decoder = Qwen2Model.from_pretrained(config = qwen_config)
+        
+        # 维度适配（假设BERT=768，Qwen2=1024） 
+        self.dim_adapter = nn.Linear(bert_config.hidden_size, qwen_config.hidden_size)
         
         self.moe = MoEModel(num_experts = 16, hidden_size = qwen_config.hidden_size)
 
+        self.classifier = nn.Linear(qwen_config.hidden_size, self.num_ner_labels)
         
         # 初始化权重
         self.post_init()
 
         
         
-    def forward(self,input_ids, attention_mask, labels=None):
-        pass
+    def forward(
+            self,
+            input_ids, 
+            attention_mask, 
+            labels=None
+        ):
+        # BERT编码  
+        encoder_outputs = self.encoder(  
+            input_ids=input_ids,  
+            attention_mask=attention_mask  
+        ).last_hidden_state    # shape = (batch_size, seq_len, bert_hidden_size)
+         
+        adapted_hidden = self.dim_adapter(encoder_outputs) # shape = (batch_size, seq_len, qwen2_hidden_size)
+        # MoE处理
+        moe_output = self.moe(adapted_hidden)  # shape = (batch_size, seq_len, qwen2_hidden_size)
+        
+        
+        # Qwen2
+        decoder_outputs = self.decoder.forward(
+            inputs_embeds = moe_output,
+            attention_mask = attention_mask
+        ).last_hidden_state  # shape = (batch_size, seq_len, qen2_hidden_size)
+        
+        
+        logits = self.classifier.forward(decoder_outputs)  # shape = (batch_size, seq_len, num_ner_labels)
+        
+        outputs = (logits,)
+        if labels is not None:
+            loss_fct = nn.CrossEntropyLoss()
+            active_loss = attention_mask.view(-1) == 1   # attention_mask.view(-1) = (batch_size * seq_len)
+            active_logits = logits.view(-1, self.num_ner_labels)[active_loss]  # shape = (num_active_tokens, num_ner_labels)
+            active_labels = labels.view(-1)[active_loss]   # shape = (num_active_tokens,)
+            loss = loss_fct(active_logits, active_labels)  
+            
+            # 添加路由平衡正则项  
+            loss += 0.01 * self.moe.balance_loss  
+            outputs = (loss,) + outputs  
+
+        return outputs
+    
+    def predict(self, input_ids):
+        '''
+        用于推理的成员函数， 为input_ids中的每个token预测一个实体标签。
+        根据预测出的实体标签，将每个实体字符串提取出来，形成 [{实体字符串:{"start_pos":..., "end_pos":..., "entity_type":...}}, {...}] 的字典列表
+        '''
+        
+        self.eval()
+        with torch.no_grad():
+            # 生成attention mask（假设无padding）
+            attention_mask = torch.ones_like(input_ids)
+            
+            # 前向传播
+            outputs = self.forward(input_ids, attention_mask)
+            logits = outputs[0]  # (batch_size, seq_len, num_ner_labels)
+            
+            # 获取预测标签
+            preds = logits.argmax(-1).squeeze().cpu().numpy()  # (seq_len,)
     
     
-    
+        # 提取实体
+        entities = []
+        current_entity = None
+        tokens = self.tokenizer.convert_ids_to_tokens(input_ids.squeeze().tolist())
+        
+        for i, (token, tag_id) in enumerate(zip(tokens, preds)):
+            # 此处需要根据实际标签定义转换id到标签（如BIO/BILOU格式）
+            tag = self.id2label[tag_id]  # 需要用户提供id2label映射
+            
+            if tag.startswith("B-"):
+                if current_entity:
+                    entities.append(current_entity)
+                current_entity = {
+                    "text": token,
+                    "start_pos": i,
+                    "end_pos": i,
+                    "entity_type": tag.split("-")[1]
+                }
+            elif tag.startswith("I-"):
+                if current_entity and current_entity["entity_type"] == tag.split("-")[1]:
+                    current_entity["text"] += token
+                    current_entity["end_pos"] = i
+                else:
+                    current_entity = None  # 非连续实体则丢弃
+            else:
+                if current_entity:
+                    entities.append(current_entity)
+                    current_entity = None
+                    
+        if current_entity:  # 添加最后一个实体
+            entities.append(current_entity)
+
+        # 格式转换
+        result = [{e["text"]: {
+            "start_pos": e["start_pos"],
+            "end_pos": e["end_pos"],
+            "entity_type": e["entity_type"]
+        }} for e in entities]
+        
+        return result
         
         
         
