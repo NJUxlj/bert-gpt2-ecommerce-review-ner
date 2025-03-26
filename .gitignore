@@ -2,3 +2,5 @@
 output/
 outputs/
 .gradio/
+
+src/data/chinese_ner_sft/

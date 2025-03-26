@@ -9,8 +9,8 @@ NER_DATA_PATH = f"./src/data/ner_data"
 SCHEMA_PATH = f"./src/data/ner_data/schema.json"
 
 
-BERT_MODEL_PATH = "D:\\models\\bert-base-chinese"
-QWEN2_MODEL_PATH = ""
+BERT_MODEL_PATH = "/root/autodl-tmp/models/bert-base-uncased"
+QWEN2_MODEL_PATH = "/root/autodl-tmp/models/Qwen2.5-0.5B"
 
 
 
@@ -21,9 +21,9 @@ HYBRID_MODEL_PATH = ""
 
 
 sft_config = {
-    "model_path": "path/to/pretrained_model",
-    "bert_model_name": "bert-base-chinese",
-    "max_seq_length": 128,
+    "model_path": "path/to/pretrained_model",   # hybrid_model
+    "bert_model_name": BERT_MODEL_PATH,
+    "max_seq_length": 512,
     "learning_rate": 0.001,
     "batch_size": 10,
     "epochs": 3,

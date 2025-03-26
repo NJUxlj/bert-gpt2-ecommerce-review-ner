@@ -60,6 +60,16 @@ _prompt_urls = {
 
 }
 
+_CITATION = """
+@dataset{chinese_ner_sft,
+  author       = {Xing Tian},
+  title        = {chinese_ner_sft},
+  month        = sep,
+  year         = 2023,
+  publisher    = {Xing Tian},
+  version      = {1.0},
+}
+"""
 
 
 class DatasetLabels(object):
@@ -209,8 +219,6 @@ class DatasetLabels(object):
 
         }
     }
-    
-    
 
     @classmethod
     def sample_candidate_entity_names(cls,
@@ -218,35 +226,22 @@ class DatasetLabels(object):
                                       text_entity_labels: List[str],
                                       must_entity_label_to_name: Dict[str, str]
                                       ) -> Dict[str, str]:
-        
         full_entity_label_to_name = cls.label_map[dataset_name]
-
-        # 从完整的entity列表中，随机采样一些实体标签->实体名称的映射。
         sampled_entity_labels: List[str] = random.sample(
             full_entity_label_to_name.keys(),
-            k = random.randint(1, len(full_entity_label_to_name.keys()))
+            k=random.randint(1, len(full_entity_label_to_name.keys()))
         )
-        
         sample_entity_label_to_name: Dict[str, str] = dict()
-        
         for entity_label in sampled_entity_labels:
-            sample_entity_label_to_name[entity_label] = random.sample(
-                full_entity_label_to_name[entity_label], k=1
-            )[0] # 从所有的实体名称中随机选一个，作为标签映射到的那个实体名称。
-        
-        # 某些实体标签必须映射到那个固定的名称
+            sample_entity_label_to_name[entity_label] = random.sample(full_entity_label_to_name[entity_label], k=1)[0]
+
         sample_entity_label_to_name.update(must_entity_label_to_name)
-        
+
         for entity_label in text_entity_labels:
-            if entity_label in sample_entity_label_to_name.keys(): # 如果当前label在随机采样的清单中
-                if entity_label not in must_entity_label_to_name.keys(): # 如果当前label不在必须映射的清单中
-                    # 那么就从随机采样的清单中删除这个label
+            if entity_label in sample_entity_label_to_name.keys():
+                if entity_label not in must_entity_label_to_name.keys():
                     sample_entity_label_to_name.pop(entity_label)
-
         return sample_entity_label_to_name
-
-
-
 
 
 class Sample(object):
@@ -259,26 +254,38 @@ class Sample(object):
         for entity in self.entities:
             label_to_name[entity["entity_label"]].update(entity["entity_names"])
         self.entity_label_to_names = label_to_name
-        
+
     def entity_labels(self) -> List[str]:
         return list(self.entity_label_to_names.keys())
-    
-    
 
     def sample_entity_label_to_name(self, sample_all: bool = False) -> Dict[str, str]:
         if len(self.entity_labels()) == 0:
             entity_labels = list()
-            
         elif sample_all:
             entity_labels = self.entity_labels()
         else:
-            pass
-        
-    
-    
-    def sample_entity(self, sample_all: bool = False) -> List[dict]:
-        pass
+            entity_labels = random.sample(
+                self.entity_label_to_names.keys(),
+                k=random.randint(1, len(self.entity_labels()))
+            )
+        entity_label_to_name: Dict[str, str] = dict()
+        for entity_label in entity_labels:
+            entity_names = self.entity_label_to_names[entity_label]
+            entity_label_to_name[entity_label] = random.sample(entity_names, k=1)[0]
+        return entity_label_to_name
 
+    def sample_entity(self, sample_all: bool = False) -> List[dict]:
+        entity_label_to_name = self.sample_entity_label_to_name(sample_all)
+        sample_entity = list()
+        for entity in self.entities:
+            if entity["entity_label"] not in entity_label_to_name.keys():
+                continue
+            sample_entity.append({
+                "entity_text": entity["entity_text"],
+                "entity_label": entity["entity_label"],
+                "entity_name": entity_label_to_name[entity["entity_label"]],
+            })
+        return sample_entity
 
 
 class PromptTemplate(object):
@@ -299,8 +306,7 @@ class PromptTemplate(object):
         input_variables = re.findall(pattern, self.template, flags=re.IGNORECASE)
 
         self.input_variables = input_variables
-        
-        
+
     def __str__(self):
         template_kwargs = dict()
         if "candidate_entity_names" in self.input_variables:
@@ -310,13 +316,6 @@ class PromptTemplate(object):
             template_kwargs["text"] = self.text
         prompt = self.template.format(**template_kwargs)
         return prompt
-    
-    
-    
-    
-    
-
-
 
 
 class ResponseTemplate(object):
@@ -338,62 +337,54 @@ class ResponseTemplate(object):
         self.input_variables = input_variables
 
         self.entity_name_to_entities = self.get_entity_name_to_entities()
-        
-    
-    def get_entity_name_to_entities(self)->Dict[str, List[dict]]:
+
+    def get_entity_name_to_entities(self):
         result = defaultdict(list)
         for entity in self.entities:
-            entity:Dict
             result[entity["entity_name"]].append(entity)
         return result
-    
-    
+
     def get_entity_text_list(self, entities: List[dict] = None, drop_duplicates: bool = False) -> str:
-        entity_text_sep = self.kwargs["entity_text_sep"] # 实体文本分隔符
-        
+        entity_text_sep = self.kwargs["entity_text_sep"]
         entities = entities or self.entities
-        
+
         entity_text_list = [e["entity_text"] for e in entities]
-        
         if drop_duplicates:
             entity_text_list = list(set(entity_text_list))
-            
+
         entity_text_list = entity_text_sep.join(entity_text_list)
         return entity_text_list
-    
-    
-    
+
     def get_no_entity_response(self):
         template = self.kwargs["no_entity_template"]
-    
+        pattern = r"\{([a-z_]*?)\}"
+        input_variables = re.findall(pattern, template, flags=re.IGNORECASE)
+        template_kwargs = dict()
+        if "candidate_entity_names" in input_variables:
+            candidate_entity_names_sep = self.kwargs["candidate_entity_names_sep"]
+            template_kwargs["candidate_entity_names"] = candidate_entity_names_sep.join(self.candidate_entity_names.values())
+        if "text" in input_variables:
+            template_kwargs["text"] = self.text
+
+        response = template.format(**template_kwargs)
+        return response
+
     @staticmethod
-    
-    def format_entity_template(self):
-        pass
-    
-       
-            
+    def format_entity_template(template: str, entity: dict):
+        pattern = r"\{([a-z_]*?)\}"
+        input_variables = re.findall(pattern, template, flags=re.IGNORECASE)
+
+        template_kwargs = dict()
+        if "entity_text" in input_variables:
+            template_kwargs["entity_text"] = entity["entity_text"]
+        if "entity_name" in input_variables:
+            template_kwargs["entity_name"] = entity["entity_name"]
+
+        entity_ = template.format(**template_kwargs)
+        return entity_
+
     @staticmethod
     def format_entity_name_to_text_template(template: str, entity_name: str, entity_text_list: str):
-        '''
-        这个正则表达式的主要目的是从模板字符串中提取所有的变量占位符。例如，对于模板字符串：
-
-
-        "提取{entity_name}中的{entity_text_list}"
-        这个正则表达式会匹配并捕获两个变量：
-
-        entity_name
-        entity_text_list些占位符。
-        
-        
-        这些捕获的变量名随后会被用于格式化模板字符串，用实际的值替换这
-        '''
-        
-        '''
-        [a-z_]：匹配小写字母和下划线
-        *?：非贪婪匹配，尽可能少地匹配字符
-        整个捕获组会捕获花括号内的变量名
-        '''
         pattern = r"\{([a-z_]*?)\}"
         input_variables = re.findall(pattern, template, flags=re.IGNORECASE)
 
@@ -404,9 +395,7 @@ class ResponseTemplate(object):
 
         entity_ = template.format(**template_kwargs)
         return entity_
-    
 
-    
     def __str__(self):
         template_kwargs = dict()
         if "entity_text_list" in self.input_variables:
@@ -457,9 +446,6 @@ class ResponseTemplate(object):
         if len(str(response).strip()) == 0:
             response = self.get_no_entity_response()
         return response
-    
-    
-    
 
 
 class PromptResponseTemplate(object):
@@ -518,37 +504,214 @@ class PromptResponseTemplate(object):
         )
         response = str(response_template)
         return prompt, response
-    
-    
-    
-    
-
-
-
 
 
 class ChineseNerSFT(datasets.GeneratorBasedBuilder):
     VERSION = datasets.Version("1.0.0")
+
     entity_configs = list()
-    
     for name in _entity_urls.keys():
         config = datasets.BuilderConfig(name=name, version=VERSION, description=name)
         entity_configs.append(config)
-        
-    
+
     template_configs = list()
     for name in _template_urls.keys():
         config = datasets.BuilderConfig(name=name, version=VERSION, description=name)
         template_configs.append(config)
-    
-    
-    
-    
+
+    prompt_configs = list()
+    for name in _prompt_urls.keys():
+        config = datasets.BuilderConfig(name=name, version=VERSION, description=name)
+        prompt_configs.append(config)
+
+    BUILDER_CONFIGS = [
+        *entity_configs,
+        *template_configs,
+        *prompt_configs,
+    ]
+
+    def _info(self):
+        if self.config.name in _entity_urls.keys():
+            features = datasets.Features({
+                "text": datasets.Value("string"),
+                "entities": datasets.Sequence(
+                    feature=datasets.Features({
+                        "start_idx": datasets.Value("int64"),
+                        "end_idx": datasets.Value("int64"),
+                        "entity_text": datasets.Value("string"),
+                        "entity_label": datasets.Value("string"),
+                        "entity_names": datasets.Sequence(
+                            datasets.Value("string")
+                        )
+                    })
+                ),
+                "data_source": datasets.Value("string"),
+            })
+        elif self.config.name in _template_urls.keys():
+            features = datasets.Features({
+                "prompt_template": datasets.Value("string"),
+                "response_template": datasets.Value("string"),
+                "kwargs": datasets.Value("string"),
+            })
+        elif self.config.name in _prompt_urls.keys():
+            features = datasets.Features({
+                "prompt": datasets.Value("string"),
+                "response": datasets.Value("string"),
+            })
+        else:
+            raise NotImplementedError
+
+        return datasets.DatasetInfo(
+            features=features,
+            supervised_keys=None,
+            homepage="",
+            license="",
+            citation=_CITATION,
+        )
+
+    def _split_entity_generators(self, dl_manager):
+        url = _entity_urls.get(self.config.name)
+        dl_path = dl_manager.download_and_extract(url)
+        archive_path = dl_path
+
+        return [
+            datasets.SplitGenerator(
+                name=datasets.Split.TRAIN,
+                gen_kwargs={"archive_path": archive_path, "split": "train"},
+            ),
+        ]
+
+    def _split_template_generators(self, dl_manager):
+        url = _template_urls.get(self.config.name)
+        dl_path = dl_manager.download_and_extract(url)
+        archive_path = dl_path
+
+        return [
+            datasets.SplitGenerator(
+                name=datasets.Split.TRAIN,
+                gen_kwargs={"archive_path": archive_path, "split": "train"},
+            ),
+        ]
+
+    def _split_prompt_generators(self, dl_manager):
+        dataset_name = self.config.name[:-7]
+        entity_url = _entity_urls.get(dataset_name)
+        entity_dl_path = dl_manager.download(entity_url)
+
+        template_name = "{}_template".format(dataset_name)
+        template_url = _template_urls.get(template_name)
+        template_dl_path = dl_manager.download(template_url)
+
+        return [
+            datasets.SplitGenerator(
+                name=datasets.Split.TRAIN,
+                gen_kwargs={"entity_dl_path": entity_dl_path, "template_dl_path": template_dl_path, "split": "train"},
+            ),
+        ]
+
+    def _split_generators(self, dl_manager):
+        """Returns SplitGenerators."""
+        if self.config.name in _entity_urls.keys():
+            return self._split_entity_generators(dl_manager)
+        elif self.config.name in _template_urls.keys():
+            return self._split_template_generators(dl_manager)
+        elif self.config.name in _prompt_urls.keys():
+            return self._split_prompt_generators(dl_manager)
+        else:
+            raise NotImplementedError
+
+    def _generate_entity(self, archive_path, split):
+        """Yields examples."""
+        archive_path = Path(archive_path)
+
+        idx = 0
+        with open(archive_path, "r", encoding="utf-8") as f:
+            for row in f:
+                row = json.loads(row)
+
+                yield idx, {
+                    "text": row["text"],
+                    "entities": row["entities"],
+                    "data_source": row["data_source"],
+                }
+                idx += 1
+
+    def _generate_template(self, archive_path, split):
+        archive_path = Path(archive_path)
+
+        idx = 0
+        prompt_template = ""
+        response_template = ""
+        kwargs = ""
+
+        with open(archive_path, "r", encoding="utf-8") as f:
+            flag = None
+            for row in f:
+                row = str(row).strip()
+
+                if row == "--- [define prompt template end] ---":
+                    if len(prompt_template) != 0:
+                        t = {
+                            "prompt_template": prompt_template.strip(),
+                            "response_template": response_template.strip(),
+                            "kwargs": kwargs.strip(),
+                        }
+                        yield idx, t
+                        idx += 1
+                        prompt_template = ""
+                        response_template = ""
+                        kwargs = ""
+
+                elif row == "prompt_template:":
+                    if not len(prompt_template) == 0:
+                        raise AssertionError
+                    flag = 0
+                elif row == "response_template:":
+                    flag = 1
+                elif row == "kwargs:":
+                    flag = 2
+                else:
+                    if flag == 0:
+                        prompt_template += "{}\n".format(row)
+                    elif flag == 1:
+                        response_template += "{}\n".format(row)
+                    elif flag == 2:
+                        kwargs += "{}\n".format(row)
+                    else:
+                        raise NotImplementedError
+
+    def _generate_prompt(self, entity_dl_path, template_dl_path, split):
+        """Yields examples."""
+        templates: List[dict] = list()
+        for _, template in self._generate_template(template_dl_path, split):
+            templates.append(template)
+
+        idx = 0
+        for _, sample in self._generate_entity(entity_dl_path, split):
+            prompt_response = PromptResponseTemplate(
+                dataset_name=self.config.name[:-7],
+                templates=templates,
+                sample=sample,
+            )
+            prompt, response = prompt_response.get_prompt_response()
+            sample = {
+                "prompt": prompt,
+                "response": response,
+            }
+            yield idx, sample
+            idx += 1
+
+    def _generate_examples(self, **kwargs):
+        """Yields examples."""
+        if self.config.name in _entity_urls.keys():
+            return self._generate_entity(**kwargs)
+        elif self.config.name in _template_urls.keys():
+            return self._generate_template(**kwargs)
+        elif self.config.name in _prompt_urls.keys():
+            return self._generate_prompt(**kwargs)
+        else:
+            raise NotImplementedError
 
 
-
-
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass
