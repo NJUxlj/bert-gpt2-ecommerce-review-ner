@@ -77,23 +77,39 @@ def convert_entities_to_bio(text: str, entities: List[EntityAnnotation], scheme:
             continue  
         
         # 应用标签  
-        tag_prefix = "B" if scheme == "BILOU" else "B"  
-        labels[entity.start_idx] = f"{tag_prefix}-{entity.label}"  
-        for i in range(entity.start_idx + 1, entity.end_idx):  
-            if scheme == "BILOU" and i == entity.end_idx -1:  
-                labels[i] = f"L-{entity.label}"  
+        # tag_prefix = "B" if scheme == "BILOU" else "B"  
+        # labels[entity.start_idx] = f"{tag_prefix}-{entity.label}"  
+        # for i in range(entity.start_idx + 1, entity.end_idx):  
+        #     if scheme == "BILOU" and i == entity.end_idx -1:  
+        #         labels[i] = f"L-{entity.label}"  
+        #     else:  
+        #         labels[i] = f"I-{entity.label}"  
+        
+        if scheme == "BILOU":  
+            entity_length = entity.end_idx - entity.start_idx  
+            if entity_length == 1:  
+                labels[entity.start_idx] = f"U-{entity.label}"  
             else:  
+                labels[entity.start_idx] = f"B-{entity.label}"  
+                for i in range(entity.start_idx + 1, entity.end_idx):  
+                    if i == entity.end_idx - 1:  
+                        labels[i] = f"L-{entity.label}"  
+                    else:  
+                        labels[i] = f"I-{entity.label}"  
+        else:  # BIO 模式  
+            labels[entity.start_idx] = f"B-{entity.label}"  
+            for i in range(entity.start_idx + 1, entity.end_idx):  
                 labels[i] = f"I-{entity.label}"  
         
         last_end = entity.end_idx  
-        
+
     return labels  
 
 class NERDataProcessor:  
     def __init__(self,  
                  tokenizer: PreTrainedTokenizerBase,  
                  label_scheme: str = "BIO",  
-                 max_length: int = 256,  
+                 max_length: int = 512,  
                  label_vocab: Optional[Dict[str, int]] = None):  
         self.tokenizer = tokenizer  
         self.label_scheme = label_scheme  
@@ -111,6 +127,7 @@ class NERDataProcessor:
                                             "I-HPPX": 7,
                                             "I-XH": 8
                                         } 
+        self.id2tag = {v: k for k, v in self.label_map.items()}
         self._verify_label_scheme()  
 
     def _verify_label_scheme(self):  
@@ -124,8 +141,14 @@ class NERDataProcessor:
             if len(parts) != 2 or parts[0] not in valid_prefix:  
                 raise ValueError(f"Invalid label '{label}' for scheme {self.label_scheme}")  
                 
-    def load_and_process(self, data_path: str) -> DatasetDict:  
-        dataset = {"train": [], "valid": [], "test": []}  
+    def load_and_process(self, data_path: str, train_size = 500, valid_size = 500, test_size = 500) -> DatasetDict:  
+        
+        train_size:int = train_size
+        valid_size:int = valid_size
+        test_size:int = test_size
+        
+        all_data = []
+        dataset = {"train": [], "validation": [], "test": []}  
         label_counter = defaultdict(int)  
         
         # 自动生成数据划分（示例比例可按需调整）  
@@ -164,13 +187,25 @@ class NERDataProcessor:
                         label_counter[label] += 1  
                         
                     # TODO: 划分训练集/验证集/测试集  
-                    dataset["train"].append(processed)  
+                    all_data.append(processed)  
+                    
+                    
+        print("all_data.type", type(all_data))
+        print(all_data[:10])
+        dataset["train"] = all_data[:train_size]  
+        dataset["validation"] = all_data[train_size:train_size+valid_size]  
+        dataset["test"] = all_data[train_size+valid_size:train_size+valid_size+test_size]  
         
         # 自动构建label映射（如果未提供）  
         if not self.label_map:  
             labels = sorted(label_counter.keys(), key=lambda x: (x.split("-")[-1], x))  
             self.label_map = {label: idx for idx, label in enumerate(labels)}  
             self._verify_label_scheme()  
+            
+        from matplotlib import pyplot as plt  
+        plt.bar(label_counter.keys(), label_counter.values())  
+        plt.xticks(rotation=45)  
+        plt.show()  
         
         # 转换为HF Dataset格式  
         return DatasetDict({  
@@ -179,46 +214,61 @@ class NERDataProcessor:
         })  
     
     def _tokenize_and_align_labels(self, tokens: List[str], char_labels: List[str]) -> Optional[Dict]:  
-        """核心对齐逻辑"""  
+        """
+        核心对齐逻辑
+        
+        1. 你必须确保你使用的bert是 bert-base-chinese, 因为这样tokenizer会直接按照字/词来进行分词
+        
+        2. 然后 一个 字/词 才能对应一个 NER label
+        
+        """  
         tokenized = self.tokenizer(  
             tokens,  
             is_split_into_words=True,  
             truncation=True,  
             max_length=self.max_length,  
-            return_offsets_mapping=True,  
             return_token_type_ids=False  
         )  
         
-        word_ids = tokenized.word_ids()  
         aligned_labels = []  
-        last_word_idx = -1  
-        
-        for word_idx in word_ids:  
-            if word_idx is None:  
+        # 直接通过 token 与原始字符的一一对应关系处理标签  
+        for token_id in tokenized.input_ids:  
+            # 跳过特殊标记 [CLS]/[SEP] 等（具体根据分词器情况调整）  
+            if token_id in [self.tokenizer.cls_token_id, self.tokenizer.sep_token_id]:  
                 aligned_labels.append(-100)  
-            elif word_idx != last_word_idx:  
-                # 当前token是词的起始位置  
-                aligned_labels.append(self.label_map[char_labels[word_idx]])  
-                last_word_idx = word_idx  
-            else:  
-                # 处理子词（将B-转换为I-）  
-                original_label = char_labels[word_idx]  
-                if original_label.startswith("B-"):  
-                    converted = original_label.replace("B-", "I-")  
-                    aligned_labels.append(self.label_map.get(converted, -100))  
-                else:  
-                    aligned_labels.append(self.label_map.get(original_label, -100))  
-        
-        # 验证对齐有效性  
-        valid_labels = [lb for lb in aligned_labels if lb != -100]  
-        if not valid_labels:  
-            return None  # 跳过无有效标签的样本  
-        
+                continue  
+                
+            # 获取原始字符位置（bert-base-chinese 字级分词特性）  
+            word_idx = tokenized.word_ids()[len(aligned_labels)]  
+            if word_idx is None or word_idx >= len(char_labels):  
+                aligned_labels.append(-100)  
+                continue  
+                
+            # 直接映射字符级标签（无子词转换）  
+            label = char_labels[word_idx]  
+            aligned_labels.append(self.label_map.get(label, -100))  # 防止未知标签  
+
+        # 有效性检查  
+        if all(lb == -100 for lb in aligned_labels):  
+            return None  
+            
         return {  
             "input_ids": tokenized["input_ids"],  
             "attention_mask": tokenized["attention_mask"],  
             "labels": aligned_labels  
         }  
+        
+        
+    def load_hf_data(self, data_path, split = 'train'):
+        '''
+        load huggingface format dataset
+        '''
+        
+        
+        ds = load_dataset(data_path, split = split)
+        
+        return ds
+        
 
 # 使用示例  
 if __name__ == "__main__":  

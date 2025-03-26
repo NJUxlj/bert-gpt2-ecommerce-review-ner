@@ -12,7 +12,7 @@ import json
 import torch
 import deepspeed
 import numpy as np
-from swanlab import SwanLabRun  
+import swanlab
 from transformers import TrainerCallback 
 from peft import LoraConfig, get_peft_model
 from datasets import Dataset
@@ -23,20 +23,27 @@ from transformers import (
     DataCollatorForTokenClassification,
     EarlyStoppingCallback,
     
-    AutoTokenizer
+    AutoTokenizer,
 )
 
 
 from src.models.enc_dec_model import BertMoEQwen2EncoderDecoder
 
+from src.models.bert.configuration_bert import BertConfig
+from src.models.qwen2.configuration_qwen2 import Qwen2Config
+from src.models.enc_dec_model import NerConfig
+
 from src.data.simple_data_preprocess import SimpleNERDataProcessor
+from src.data.data_preprocess import NERDataProcessor
 
 from src.evaluation.evaluator import NEREvaluator
 
 from src.configs.config import (
     SFT_MODEL_PATH,
     
-    HYBRID_MODEL_PATH
+    HYBRID_MODEL_PATH,
+    BERT_MODEL_PATH,
+    QWEN2_MODEL_PATH,
 )
 
 from sklearn.metrics import (
@@ -50,7 +57,8 @@ from sklearn.metrics import (
 
 class SwanLabCallback(TrainerCallback):  
     def __init__(self, swan_config):  
-        self.swan_run = SwanLabRun(  
+        self.swan_run = swanlab.init(  
+            project=swan_config.get("project", "NER-Experiment"),
             config=swan_config,  
             experiment_name=swan_config.get("name", "ner_experiment")  
         )  
@@ -106,18 +114,30 @@ class EnhancedTrainer(Trainer):
         
 
 class HybridModelTrainer:
-    def __init__(self, config_path: str =None, swan_config = None):
+    def __init__(
+        self, 
+        config_path: str =None, 
+        swan_config = None,
+        bert_config: BertConfig = None,
+        qwen2_config: Qwen2Config = None,
+        ner_config: NerConfig = None
+        ):
+        
+        self.bert_config = bert_config or BertConfig.from_pretrained(BERT_MODEL_PATH)
+        self.qwen2_config = qwen2_config or Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)
+        self.ner_config = ner_config
 
         if config_path == None:
             self.config = {
                             "model_path": "path/to/pretrained_model",
-                            "bert_model_name": "bert-base-chinese",
-                            "max_seq_length": 128,
+                            "bert_model_name": BERT_MODEL_PATH,
+                            "max_seq_length": 512,
                             "batch_size": 16,
                             "learning_rate": 3e-4,
                             "max_steps": 10000,
                             "output_dir": "./output",
-                            "lora_rank": 8
+                            "lora_rank": 32,
+                            "ner_data_type": "chinese_ner_sft"
                         }
         else:
             with open(config_path) as f:
@@ -128,7 +148,7 @@ class HybridModelTrainer:
         self.data_collator = DataCollatorForTokenClassification(
             tokenizer=self.tokenizer,
             padding='longest',
-            max_length=1024,
+            max_length=512,
             label_pad_token_id=-100
         )
     
@@ -144,10 +164,17 @@ class HybridModelTrainer:
         }  if not swan_config else None
         
         
+        self.processor = NERDataProcessor()
+        
+        
     def _initialize_model(self):
         """加载混合模型并应用LoRA"""
         # 加载基础模型
-        model = BertMoEQwen2EncoderDecoder.from_pretrained(self.config['model_path'])
+        model = BertMoEQwen2EncoderDecoder(
+            bert_config=self.bert_config,
+            qwen_config=self.qwen2_config,
+            ner_config=self.ner_config
+        )
         tokenizer = AutoTokenizer.from_pretrained(self.config['bert_model_name'])
         
         # 冻结MoE参数

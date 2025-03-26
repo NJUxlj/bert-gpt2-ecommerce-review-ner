@@ -6,13 +6,34 @@ sys.path.append(str(Path(__file__).parent))
 
 from src.data.data_preprocess import NERDataProcessor
 
+from src.models.bert.configuration_bert import BertConfig
+from src.models.qwen2.configuration_qwen2 import Qwen2Config
+from src.models.enc_dec_model import NerConfig
 
-from src.configs.config import CHINESE_NER_DATA_PATH, BERT_MODEL_PATH, HYBRID_MODEL_PATH, SCHEMA_PATH, NER_DATA_PATH
+
+from src.configs.config import (
+    CHINESE_NER_DATA_PATH, 
+    PROCESSED_CHINESE_NER_DATA_PATH,
+    BERT_MODEL_PATH, 
+    QWEN2_MODEL_PATH,
+    HYBRID_MODEL_PATH, 
+    SCHEMA_PATH, 
+    NER_DATA_PATH
+)
 
 from transformers import AutoTokenizer
 from src.models.enc_dec_model import BertMoEQwen2EncoderDecoder
 from src.data.simple_data_preprocess import SimpleNERDataProcessor
 from src.evaluation.evaluator import NEREvaluator
+
+
+from src.finetune.ner_trainer import (
+    HybridModelTrainer
+)
+
+
+from datasets import load_dataset, Dataset, DatasetDict
+
 
 
 def test_ner_dataset():
@@ -57,8 +78,50 @@ def test_simple_ner_dataset():
 
 
 
-def test_trainer():
-    pass
+def test_trainer(ner_data_type = "chinese_ner_sft"):
+    swan_config = {  
+        "project": "NER-Experiment",  
+        "name": "Bert-MoE-Qwen2-LoRA",  
+        "config": {  
+            "lora_rank": 32,  
+            "batch_size": 16,  
+            "learning_rate": 3e-4  
+        }  
+    }  
+    
+    bert_config = BertConfig.from_pretrained(BERT_MODEL_PATH)
+    qwen2_config = Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)
+    ner_config = NerConfig()
+    
+    trainer = HybridModelTrainer(
+        config_path =None, 
+        swan_config = swan_config,
+        bert_config=bert_config,
+        qwen2_config=qwen2_config,
+        ner_config=ner_config,
+    )
+    
+    if ner_data_type == 'single_ner':
+        processor = SimpleNERDataProcessor("schema.json")
+    
+        # 加载数据集
+        train_dataset = processor.get_train_examples("data/train.txt")
+        eval_dataset = processor.get_dev_examples("data/dev.txt")
+        
+        # 转换数据集格式
+        train_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in train_dataset]})
+        eval_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in eval_dataset]})
+    else:
+        processor = NERDataProcessor()
+        tokenizer=AutoTokenizer.from_pretrained(BERT_MODEL_PATH),
+        train_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "train")
+        eval_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "validation")
+        
+    
+    
+
+    # 开始训练
+    trainer.train(train_dataset, eval_dataset)
 
 
 
@@ -97,4 +160,4 @@ def test_evaluator():
 if __name__ == "__main__":
     # test_ner_dataset()
     
-    test_ner_dataset()
+    test_trainer()

@@ -15,8 +15,16 @@ from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 from collections import defaultdict
 
+
+from typing import Union, List, Dict, Tuple, Optional, Callable
+
+
+from src.data.data_preprocess import NERDataProcessor
+
+from src.data.simple_data_preprocess import SimpleNERDataProcessor
+
 class NEREvaluator:
-    def __init__(self, model, processor, tokenizer, device="cuda"):
+    def __init__(self, model, processor:Union[NERDataProcessor, SimpleNERDataProcessor], tokenizer, device="cuda"):
         self.model = model.to(device)
         self.processor = processor
         self.tokenizer = tokenizer
