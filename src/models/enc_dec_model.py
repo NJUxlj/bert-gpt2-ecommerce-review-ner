@@ -91,32 +91,45 @@ class MoEModel(nn.Module):
                             unsqueeze(-1) \
                             *self.num_experts \
                             .view(batch_size, seq_len, 1)
-        # top_k_indices形状：(B,S,K) → 展平后：(B*S*K,)
-        # 最终flat_indices形状：(B,S,K)
+        '''
+        base_offset = torch.arange(batch_size*seq_len)  # 形状 (B*S,) → [0,1,2,3,4,5]
+                         .unsqueeze(-1)                 # 形状 (B*S,1) → [[0],[1],[2],[3],[4],[5]]
+                         * self.num_experts             # 形状 (B*S,1) → [[0],[4],[8],[12],[16],[20]]
+                         .view(batch_size, seq_len, 1) # 重塑为 (B,S,1) → [[[0],[4],[8]], [[12],[16],[20]]]
+        '''
         
         # 2. 广播相加（关键作用：为每个token生成独立索引空间）
             # 原来的 expert top_k_indices 的基础上， 加上 token 索引
             # 本质上来说， 就是让每个token的token索引与expert索引挂钩
+            # 这个计算的核心作用是：为每个token创建独立的索引空间，确保不同token选择的专家索引不会冲突
         flat_indices = top_k_indices + base_offset  # 广播规则：(B,S,K) + (B,S,1) → (B,S,K)
         
         
-
+             
+        # 核心作用：从所有专家输出中筛选每个token对应的top-k专家结果
         selected_outputs = expert_outputs.view(-1, self.num_experts, self.hidden_size)[   # 展平为：(B*S, N, H)
-            flat_indices.view(-1, self.top_k)  # 索引形状：(B*S, K)
+            flat_indices.view(-1, self.top_k)  # 步骤2：用展平的索引选择专家, 索引形状：(B*S, K)
         ].view(batch_size, seq_len, self.top_k, self.hidden_size)  # 恢复形状 → (B,S,K,H)
         
-        # 加权求和（爱因斯坦求和约定）：
-        output = torch.einsum('bstk,bst->bsth', selected_outputs, top_k_weights).sum(dim=-2)  
-        # selected_outputs形状：(B,S,K,H), top_k_weights形状：(B,S,K)
-        # einsum结果形状：(B,S,H) → sum后保持形状不变
+        # 专家输出的 加权求和（爱因斯坦求和约定, 实际上就是对位相乘）：
+        # 输入张量形状：
+            # selected_outputs: (B,S,K,H) 每个token对应的k个专家输出
+            # top_k_weights: (B,S,K) 每个专家对应的路由权重
+        output = torch.einsum('bstk,bst->bsth', selected_outputs, top_k_weights).sum(dim=-2)     # 逐元素乘权重，然后在在top_k维度求和
+        # 计算步骤分解：
+            # 1. 维度扩展：将top_k_weights从(B,S,K)扩展为(B,S,K,1)
+            # 2. 逐元素相乘：selected_outputs * top_k_weights → (B,S,K,H)
+            # 3. 沿K维度求和：sum(dim=2) → (B,S,H)   # 表示每个token经过专家融合后的最终隐藏状态。
         
         # 平衡损失计算（专家负载均衡控制，防止专家坍塌）  
-        # 计算专家使用频率（沿batch和sequence维度平均）
-        expert_usage = prots.mean(dim=[0,1])  # 形状：(num_experts,)  # 输入prots形状：(B,S,N) → 输出形状：(N,)
+        # 计算专家使用频率（沿batch和sequence维度平均，得到每个专家的全局使用概率）
+            # 示例：若有4个专家，可能得到 [0.3, 0.2, 0.4, 0.1]
+        expert_usage = probs.mean(dim=[0,1])  # 形状：(num_experts,)  # 输入probs形状：(B,S,N) → 输出形状：(N,)
         # 计算熵形式的平衡损失（鼓励均匀分布）
-        self.balance_loss = (expert_usage * torch.log(expert_usage + 1e-12)).sum()  # 标量值
+            # 当所有专家使用率相等时熵最大（平衡状态），损失值（负熵）最小
+        self.balance_loss = - (expert_usage * torch.log(expert_usage + 1e-12)).sum()  # 标量值
 
-        '''
+        '''~
         该损失函数的作用：
 
         1. 当某些专家长期不被选择时（usage→0），log(usage)→-∞，但usage*log(usage)→0
