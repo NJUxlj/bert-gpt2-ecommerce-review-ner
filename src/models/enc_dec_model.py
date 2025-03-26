@@ -276,7 +276,7 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
             logits = outputs[0]  # (batch_size, seq_len, num_ner_labels)
             
             # 获取预测标签
-            preds = logits.argmax(-1).squeeze().cpu().numpy()  # (seq_len,)
+            preds = logits.argmax(-1).squeeze().cpu().numpy()  # (batch_size, seq_len)
     
     
         # 提取实体
@@ -303,7 +303,7 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
                     current_entity["end_pos"] = i
                 else:
                     current_entity = None  # 非连续实体则丢弃
-            else:
+            else: # O标签
                 if current_entity:
                     entities.append(current_entity)
                     current_entity = None
