@@ -101,6 +101,8 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
         ner_config=ner_config,
     )
     
+    tokenizer = trainer.tokenizer
+    
     if ner_data_type == 'single_ner':
         processor = SimpleNERDataProcessor("schema.json")
     
@@ -112,8 +114,7 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
         train_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in train_dataset]})
         eval_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in eval_dataset]})
     else:
-        processor = NERDataProcessor()
-        tokenizer=AutoTokenizer.from_pretrained(BERT_MODEL_PATH),
+        processor = trainer.processor
         train_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "train")
         eval_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "validation")
         

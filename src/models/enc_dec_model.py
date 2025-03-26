@@ -183,12 +183,14 @@ class MoEModel(nn.Module):
         return output  
         
 
-class BertMoEQwen2PreTrainedModel(PreTrainedModel):
-    config_class = Qwen2Config  # 暂时借用一下qwen2的config
+class BertMoEQwen2PreTrainedModel(nn.Module):
     base_model_prefix = "model"
     supports_gradient_checkpointing = True  
-    def __init__():
+    
+    
+    def __init__(self):
         super().__init__()
+        self.config = Qwen2Config()
         
     def _init_weights(self, module):
         std = self.config.initializer_range
@@ -211,12 +213,13 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
         super().__init__()  
         
         self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
+        print("BertMoEQwen2EncoderDecoder tokenizer 加载完毕 ~~~~")
         self.id2label = {i: tag for i, tag in enumerate(ner_config.label2id)}
         
         
         self.num_ner_labels = ner_config.num_ner_labels
-        self.encoder = BertModel.from_pretrained(config = bert_config)
-        self.decoder = Qwen2Model.from_pretrained(config = qwen_config)
+        self.encoder = BertModel.from_pretrained(BERT_MODEL_PATH, config = bert_config)
+        self.decoder = Qwen2Model.from_pretrained(QWEN2_MODEL_PATH, config = qwen_config)
         
         # 维度适配（假设BERT=768，Qwen2=1024） 
         self.dim_adapter = nn.Linear(bert_config.hidden_size, qwen_config.hidden_size)
@@ -225,8 +228,11 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
 
         self.classifier = nn.Linear(qwen_config.hidden_size, self.num_ner_labels)
         
-        # 初始化权重
-        self.post_init()
+        # 初始化权重 [除了 self.encoder, self.decoder]
+        self._init_weights(self.dim_adapter)
+        self._init_weights(self.moe)
+        self._init_weights(self.classifier)
+        
 
         
         

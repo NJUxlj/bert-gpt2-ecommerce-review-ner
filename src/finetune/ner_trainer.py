@@ -17,6 +17,17 @@ from transformers import TrainerCallback
 from peft import LoraConfig, get_peft_model
 from datasets import Dataset
 
+
+from typing import (
+    List, 
+    Dict,
+    Tuple,
+    Optional,
+    Literal,
+    Union,
+    Any,
+)
+
 from transformers import (
     Trainer, 
     TrainingArguments,
@@ -40,7 +51,7 @@ from src.evaluation.evaluator import NEREvaluator
 
 from src.configs.config import (
     SFT_MODEL_PATH,
-    
+    SCHEMA_PATH,
     HYBRID_MODEL_PATH,
     BERT_MODEL_PATH,
     QWEN2_MODEL_PATH,
@@ -56,7 +67,7 @@ from sklearn.metrics import (
 
 
 class SwanLabCallback(TrainerCallback):  
-    def __init__(self, swan_config):  
+    def __init__(self, swan_config:Dict):  
         self.swan_run = swanlab.init(  
             project=swan_config.get("project", "NER-Experiment"),
             config=swan_config,  
@@ -117,6 +128,7 @@ class HybridModelTrainer:
     def __init__(
         self, 
         config_path: str =None, 
+        ner_data_type:Literal["chinese_ner_sft", "simple_ner"] = "chinese_ner_sft",
         swan_config = None,
         bert_config: BertConfig = None,
         qwen2_config: Qwen2Config = None,
@@ -136,8 +148,9 @@ class HybridModelTrainer:
                             "learning_rate": 3e-4,
                             "max_steps": 10000,
                             "output_dir": "./output",
-                            "lora_rank": 32,
-                            "ner_data_type": "chinese_ner_sft"
+                            "lora_rank": 8,
+                            "ner_data_type": "chinese_ner_sft",
+                            'num_train_epochs': 2,
                         }
         else:
             with open(config_path) as f:
@@ -161,10 +174,14 @@ class HybridModelTrainer:
                 "batch_size": self.config['batch_size'],  
                 "learning_rate": self.config['learning_rate']  
             }  
-        }  if not swan_config else None
+        }  if not swan_config else swan_config
         
+        self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
         
-        self.processor = NERDataProcessor()
+        if ner_data_type == "chinese_ner_sft":
+            self.processor = NERDataProcessor(tokenizer = self.tokenizer)
+        else:
+            self.processor = SimpleNERDataProcessor(SCHEMA_PATH)
         
         
     def _initialize_model(self):
@@ -186,9 +203,11 @@ class HybridModelTrainer:
             r=self.config['lora_rank'],
             lora_alpha=32,
             target_modules=[
-                "encoder.layer.*.attention",  # BERT的注意力层
-                "decoder.layers.*.self_attn",  # Qwen2的注意力层
-                "decoder.layers.*.cross_attn"  # 跨注意力层（如果有）
+                # "encoder.layer.*.attention",  # BERT的注意力层
+                # "decoder.layers.*.self_attn",  # Qwen2的注意力层
+                # "decoder.layers.*.cross_attn"  # 跨注意力层（如果有）
+                "q_proj","k_proj", "v_proj"
+                # "query", "key", "value"
             ],
             lora_dropout=0.05,
             bias="none",
@@ -246,6 +265,9 @@ class HybridModelTrainer:
         }
     
     def train(self, train_dataset, eval_dataset):
+        print("train_dataset[0].keys() = ", train_dataset[0].keys())
+        print("train_dataset[0] = ", train_dataset[0])
+        print("train_dataset[1] = ", train_dataset[0])
         # 初始化评估器  
         evaluator = NEREvaluator(  
             model=self.model,  
@@ -270,7 +292,10 @@ class HybridModelTrainer:
             report_to=[],
             load_best_model_at_end=True,
             metric_for_best_model="strict_f1",
-            greater_is_better=True
+            greater_is_better=True,
+            remove_unused_columns=False,
+            fp16=True,
+            warmup_steps=500,
         )
         
         # 创建增强版Trainer
@@ -285,7 +310,6 @@ class HybridModelTrainer:
             compute_metrics=self._compute_basic_metrics,  
             callbacks=[  
                 EarlyStoppingCallback(early_stopping_patience=3),  
-                self.swan_callback  
             ]  
         )
         
