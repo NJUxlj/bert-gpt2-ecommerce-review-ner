@@ -97,4 +97,4 @@ def test_evaluator():
 if __name__ == "__main__":
     # test_ner_dataset()
     
-    test_simple_ner_dataset()
+    test_ner_dataset()
