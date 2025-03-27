@@ -178,7 +178,9 @@ class NERDataProcessor:
                     tokens = list(data["text"])  # 字符级分词  
                     
                     # Tokenize并构建标签对齐  
-                    processed = self._tokenize_and_align_labels(tokens, char_labels)  
+                    processed = self._tokenize_and_align_labels(tokens, char_labels) 
+                    # print("processed.type = ", type(processed)) 
+                    # print("processed.keys() = ", processed.keys())
                     if not processed:  
                         continue  
                         
@@ -207,11 +209,39 @@ class NERDataProcessor:
         plt.xticks(rotation=45)  
         plt.show()  
         
+        
+        # 将列表转换为列式字典  
+        train_column_data = {  
+            "input_ids": [x["input_ids"] for x in dataset["train"]],  
+            "attention_mask": [x["attention_mask"] for x in dataset["train"]],  
+            "labels": [x["labels"] for x in dataset["train"]]  
+        }  
+        
+        validation_column_data = {
+            "input_ids": [x["input_ids"] for x in dataset["validation"]],
+            "attention_mask": [x["attention_mask"] for x in dataset["validation"]],
+            "labels": [x["labels"] for x in dataset["validation"]]
+        }
+        
+        test_column_data = {
+            "input_ids": [x["input_ids"] for x in dataset["test"]],
+            "attention_mask": [x["attention_mask"] for x in dataset["test"]],
+            "labels": [x["labels"] for x in dataset["test"]]
+        }
+
+    
+        
         # 转换为HF Dataset格式  
+        # return DatasetDict({  
+        #     split: Dataset.from_dict(data)    # data 的类型是 List[Dict]
+        #     for split, data in dataset.items()  
+        # }) 
+        
         return DatasetDict({  
-            split: Dataset.from_list(data)   
-            for split, data in dataset.items()  
-        })  
+            "train": Dataset.from_dict(train_column_data),  
+            "validation": Dataset.from_dict(validation_column_data),  
+            "test": Dataset.from_dict(test_column_data)  
+        })   
     
     def _tokenize_and_align_labels(self, tokens: List[str], char_labels: List[str]) -> Optional[Dict]:  
         """
@@ -221,33 +251,64 @@ class NERDataProcessor:
         
         2. 然后 一个 字/词 才能对应一个 NER label
         
+        input_ids 和 word_ids 的区别：
+        
+        Token:  101 → Word index: None  # [CLS]  
+        Token: 2769 → Word index: 0     # 我  
+        Token: 4263 → Word index: 1     # 喜  
+        Token: 3341 → Word index: 2     # 欢  
+        Token: 1355 → Word index: 3     # 自  
+        Token: 1767 → Word index: 4     # 然  
+        Token: 2158 → Word index: 5     # 语  
+        Token:  702 → Word index: 6     # 言  
+        Token:  511 → Word index: 7     # 处  
+        Token:  102 → Word index: None  # [SEP]  
+        Token:    0 → Word index: None  # [PAD]  
+        Token:    0 → Word index: None  # [PAD]  
+        
         """  
         tokenized = self.tokenizer(  
             tokens,  
             is_split_into_words=True,  
             truncation=True,  
-            max_length=self.max_length,  
+            max_length=self.max_length,
+            padding = "max_length",
+            return_offsets_mapping=True,  # 必须要返回偏移量映射，因为我们使用的是 bert-base-chinese, 他会自动在中文词之前加上两个##  
             return_token_type_ids=False  
         )  
         
         aligned_labels = []  
+        word_ids = tokenized.word_ids()
+        
         # 直接通过 token 与原始字符的一一对应关系处理标签  
-        for token_id in tokenized.input_ids:  
+        for i, word_idx in enumerate(tokenized.word_ids()):   
             # 跳过特殊标记 [CLS]/[SEP] 等（具体根据分词器情况调整）  
-            if token_id in [self.tokenizer.cls_token_id, self.tokenizer.sep_token_id]:  
+            if tokenized.input_ids[i] in [self.tokenizer.cls_token_id,   
+                                    self.tokenizer.sep_token_id,  
+                                    self.tokenizer.pad_token_id]:  
                 aligned_labels.append(-100)  
                 continue  
                 
-            # 获取原始字符位置（bert-base-chinese 字级分词特性）  
-            word_idx = tokenized.word_ids()[len(aligned_labels)]  
-            if word_idx is None or word_idx >= len(char_labels):  
+            # 处理截断后的token（重要！） 
+            if word_idx is None or i >= len(word_ids):  
                 aligned_labels.append(-100)  
                 continue  
+
+            # 中文BERT的特殊处理：通过offset mapping验证  
+            start, end = tokenized.offset_mapping[i]  # offset_mapping的作用：告诉我们token对应原始字符的起始和结束位置
+            if start==end==0: # 特殊token
+                aligned_labels.append(-100)
+            else:
+                aligned_labels.append(self.label_map.get(char_labels[word_idx],-100))
                 
             # 直接映射字符级标签（无子词转换）  
             label = char_labels[word_idx]  
             aligned_labels.append(self.label_map.get(label, -100))  # 防止未知标签  
 
+        # 强制标签长度对齐（防止max_length截断导致长度不一致）  
+        aligned_labels = aligned_labels[:self.max_length] + [-100]*(self.max_length - len(aligned_labels)) 
+        
+        
         # 有效性检查  
         if all(lb == -100 for lb in aligned_labels):  
             return None  

@@ -219,50 +219,51 @@ class HybridModelTrainer:
     
     def _ds_config(self):
         """生成动态DeepSpeed配置"""
-        return {
-            "train_micro_batch_size_per_gpu": self.config['batch_size'],
-            "gradient_accumulation_steps": "auto",
-            "optimizer": {
-                "type": "AdamW",
-                "params": {
-                    "lr": "auto",
-                    "weight_decay": "auto",
-                    "torch_adam": True
-                }
-            },
-            "scheduler": {
-                "type": "WarmupDecay",
-                "params": {
-                    "warmup_min_lr": 0,
-                    "warmup_max_lr": self.config['learning_rate'],
-                    "warmup_num_steps": 500,
-                    "total_num_steps": self.config['max_steps']
-                }
-            },
-            "zero_optimization": {
-                "stage": 3,
-                "offload_optimizer": {
-                    "device": "cpu",
-                    "pin_memory": True
-                },
-                "contiguous_gradients": True,
-                "overlap_comm": True,
-                "stage3_max_live_parameters": 1e9,
-                "stage3_max_reuse_distance": 1e9,
-                "stage3_gather_16bit_weights": True
-            },
-            "activation_checkpointing": {
-                "partition_activations": True,
-                "contiguous_memory_optimization": True,
-                "number_checkpoints": 4
-            },
-            "fp16": {
-                "enabled": True,
-                "loss_scale": 0,
-                "loss_scale_window": 1000,
-                "initial_scale_power": 16
-            }
-        }
+        return {  
+            "zero_optimization": {  
+                "stage": 3,  
+                "offload_optimizer": {  
+                    "device": "cpu",  
+                    "pin_memory": True  
+                },  
+                # 修正参数名称 (关键修改点)  
+                "stage3_gather_16bit_weights_on_cpu": True,  
+                "contiguous_gradients": True,  
+                "overlap_comm": True,  
+                "stage3_max_live_parameters": 1e9,  
+                "stage3_max_reuse_distance": 1e9  
+            },  
+            # 推荐使用bf16代替fp16 (根据硬件支持情况)  
+            "bf16": {  
+                "enabled": True,  
+                "loss_scale_window": 1000  
+            },  
+            "gradient_accumulation_steps": "auto",  
+            "train_micro_batch_size_per_gpu": self.config['batch_size'],  
+            "activation_checkpointing": {  
+                "partition_activations": True,  
+                "contiguous_memory_optimization": True,  
+                "number_checkpoints": 4  
+            },  
+            "optimizer": {  
+                "type": "AdamW",  
+                "params": {  
+                    "lr": "auto",  
+                    "weight_decay": "auto",  
+                    "torch_adam": True  
+                }  
+            },  
+            "scheduler": {  
+                "type": "WarmupDecay",  
+                "params": {  
+                    "warmup_min_lr": 0,  
+                    "warmup_max_lr": self.config['learning_rate'],  
+                    "warmup_num_steps": 500,  
+                    "total_num_steps": self.config['max_steps']  
+                }  
+            }  
+        }  
+
     
     def train(self, train_dataset, eval_dataset):
         print("train_dataset[0].keys() = ", train_dataset[0].keys())
@@ -294,7 +295,8 @@ class HybridModelTrainer:
             metric_for_best_model="strict_f1",
             greater_is_better=True,
             remove_unused_columns=False,
-            fp16=True,
+            fp16=False,
+            bf16=True,
             warmup_steps=500,
         )
         
