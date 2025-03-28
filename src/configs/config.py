@@ -19,7 +19,7 @@ QWEN2_MODEL_PATH = "/root/autodl-tmp/models/Qwen2.5-0.5B"
 SFT_MODEL_PATH = ""
 
 
-HYBRID_MODEL_PATH = ""
+HYBRID_MODEL_PATH = "./src/output/hybrid_model"
 
 
 sft_config = {

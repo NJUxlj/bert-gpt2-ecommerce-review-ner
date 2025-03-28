@@ -113,7 +113,7 @@ class MoEModel(nn.Module):
         
         # tok_k_weights.shape = (batch_size, seq_len, top_k), 其中一个token对应的topk-weights 为 [0.2, 0.8]
         # tok_k_indices.shape = (batch_size, seq_len, top_k)， 其中一个token对应的topk-weights 为 [0, 1]
-        top_k_weights, top_k_indices = probs.topk(probs, dim=-1)
+        top_k_weights, top_k_indices = probs.topk(k=self.top_k, dim=-1)
         
         
         # 专家处理
@@ -130,10 +130,10 @@ class MoEModel(nn.Module):
         # 将三维输入展平为二维索引：(batch_size*seq_len, 1)
         # 分解计算步骤（假设 B=2, S=3, K=2, N=4）
         # 1. 生成基础偏移量矩阵
-        base_offset =  torch.arange(batch_size*seq_len, device=x.device). \
-                            unsqueeze(-1) \
+        base_offset =  torch.arange(batch_size*seq_len, device=x.device) \
+                            .view(batch_size, seq_len, 1) \
                             *self.num_experts \
-                            .view(batch_size, seq_len, 1)
+                            
         '''
         base_offset = torch.arange(batch_size*seq_len)  # 形状 (B*S,) → [0,1,2,3,4,5]
                          .unsqueeze(-1)                 # 形状 (B*S,1) → [[0],[1],[2],[3],[4],[5]]
@@ -146,19 +146,44 @@ class MoEModel(nn.Module):
             # 本质上来说， 就是让每个token的token索引与expert索引挂钩
             # 这个计算的核心作用是：为每个token创建独立的索引空间，确保不同token选择的专家索引不会冲突
         flat_indices = top_k_indices + base_offset  # 广播规则：(B,S,K) + (B,S,1) → (B,S,K)
+        assert flat_indices.size() == (batch_size, seq_len, self.top_k), f"flat_indices size error, got {flat_indices.size()}, expected {(batch_size, seq_len, self.top_k)}"
         
+        flat_indices = flat_indices.view(-1)  # 展平为 (B*S*K)  
+        
+        assert expert_outputs.size() == (batch_size, seq_len, self.num_experts, self.hidden_size), f"expert_outputs size error, got {expert_outputs.size()}, expected {(batch_size, seq_len, self.num_experts, self.hidden_size)}"  
+        assert flat_indices.max() < (batch_size * seq_len * self.num_experts), "Index out of bound"  
         
              
         # 核心作用：从所有专家输出中筛选每个token对应的top-k专家结果
-        selected_outputs = expert_outputs.view(-1, self.num_experts, self.hidden_size)[   # 展平为：(B*S, N, H)
-            flat_indices.view(-1, self.top_k)  # 步骤2：用展平的索引选择专家, 索引形状：(B*S, K)
-        ].view(batch_size, seq_len, self.top_k, self.hidden_size)  # 恢复形状 → (B,S,K,H)
+        selected_outputs = expert_outputs.view(-1, self.hidden_size)[   # 展平为：(B*S*N, H)
+            flat_indices  
+        ].view(batch_size, seq_len, self.top_k, -1)  # 恢复形状 → (B,S,K,H)
+        
+        
+        
+        print(f"expert_outputs shape: {expert_outputs.shape}")  
+        print(f"flat_indices shape: {flat_indices.shape}")  
+        print(f"selected_outputs shape: {selected_outputs.shape}")  
+        
         
         # 专家输出的 加权求和（爱因斯坦求和约定, 实际上就是对位相乘）：
         # 输入张量形状：
             # selected_outputs: (B,S,K,H) 每个token对应的k个专家输出
             # top_k_weights: (B,S,K) 每个专家对应的路由权重
-        output = torch.einsum('bstk,bst->bsth', selected_outputs, top_k_weights).sum(dim=-2)     # 逐元素乘权重，然后在在top_k维度求和
+        '''
+        根据打印的维度信息：
+
+        selected_outputs形状为[16, 512, 2, 896] → (batch, seq_len, top_k, hidden)
+        top_k_weights形状为[16, 512, 2] → (batch, seq_len, top_k)
+        正确的爱因斯坦求和标记：
+
+        bskh：对应selected_outputs的四个维度 (batch, seq_len, top_k, hidden)
+        bsk：对应top_k_weights的三个维度 (batch, seq_len, top_k)
+        bsh：输出维度 (batch, seq_len, hidden)
+        '''
+        output = torch.einsum('bskh,bsk->bsh', selected_outputs, top_k_weights)
+
+        print("einsum_output.shape = ", output.shape)
         # 计算步骤分解：
             # 1. 维度扩展：将top_k_weights从(B,S,K)扩展为(B,S,K,1)
             # 2. 逐元素相乘：selected_outputs * top_k_weights → (B,S,K,H)
@@ -168,10 +193,12 @@ class MoEModel(nn.Module):
         # 计算专家使用频率（沿batch和sequence维度平均，得到每个专家的全局使用概率）
             # 示例：若有4个专家，可能得到 [0.3, 0.2, 0.4, 0.1]
         expert_usage = probs.mean(dim=[0,1])  # 形状：(num_experts,)  # 输入probs形状：(B,S,N) → 输出形状：(N,)
+        print(f"expert_usage shape: {expert_usage.shape}")
+
         # 计算熵形式的平衡损失（鼓励均匀分布）
             # 当所有专家使用率相等时熵最大（平衡状态），损失值（负熵）最小
         self.balance_loss = - (expert_usage * torch.log(expert_usage + 1e-12)).sum()  # 标量值
-
+        print(f"self.balance_loss: {self.balance_loss}")
         '''~
         该损失函数的作用：
 
@@ -249,6 +276,7 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
         ).last_hidden_state    # shape = (batch_size, seq_len, bert_hidden_size)
          
         adapted_hidden = self.dim_adapter(encoder_outputs) # shape = (batch_size, seq_len, qwen2_hidden_size)
+        print("adapted_hidden.shape = ", adapted_hidden.shape)
         # MoE处理
         moe_output = self.moe(adapted_hidden)  # shape = (batch_size, seq_len, qwen2_hidden_size)
         

@@ -1,13 +1,11 @@
-# bert-gpt2-ecommerce-review-ner
-基于Bert+GPT2改造和LoRA微调的Encoder-Decoder电商评论NER模型
+# bert-qwen2-ecommerce-review-ner
+基于Bert+MoE+Qwen2改造和LoRA微调的Encoder-Decoder电商评论NER模型
 
 
 ## Project Description
-
-- gpt2模型所在的 `modeling_gpt2.py` 中的 Multi-Head-Attention 改造为 Group-Query-Attention (GQA).
-- 在原有的 `modeling_gpt2.py` 的基础上， 在最后又增添了 GPT2ForSequenceClassification, 使其可以用于电商评论任务。
-- 将Bert (Encoder) 和 GPT2 (Decoder) 拼接起来，来完整最终的分类任务。
-- 使用LoRA对Encoder-Decoder模型在NER任务上进行微调。
+- 将Bert (Encoder) 和 MoE 和 Qwen2 (Decoder) 拼接起来，来完整最终的电商评论NER任务。
+- 我们将这个拼接起来的模型称之为 `Bert-MoE-Qwen2`
+- 使用LoRA对`Bert-MoE-Qwen2`模型在NER任务上进行微调。
 
 
 
@@ -167,9 +165,23 @@ bert-gpt2-ecommerce-review-ner
 
 ```
 
+
+## How to Run?
+- `main.py` 中包含了许多测试函数，包括两种NER数据集的预处理， train，evaluate 等， 你可以自行在 `if __name__ == "__main__"` 中去掉你想测试的代码的注释.
+
+```bash
+python main.py
+```
+
+
+## 训练截图
+- 由于要训练两个小时，我先把截图放在这里，训练结果以后再补充。
+![training](bert-gpt2-ecommerce-review-ner/image/training_snapshot.png)
+
+
 ## Citation
 
-
+- 暂时没有
 
 
 

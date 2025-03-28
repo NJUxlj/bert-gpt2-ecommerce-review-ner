@@ -13,6 +13,12 @@ import torch
 import deepspeed
 import numpy as np
 import swanlab
+from swanlab import finish
+
+
+
+
+
 from transformers import TrainerCallback 
 from peft import LoraConfig, get_peft_model
 from datasets import Dataset
@@ -68,11 +74,31 @@ from sklearn.metrics import (
 
 class SwanLabCallback(TrainerCallback):  
     def __init__(self, swan_config:Dict):  
+        self.config = swan_config
         self.swan_run = swanlab.init(  
             project=swan_config.get("project", "NER-Experiment"),
             config=swan_config,  
             experiment_name=swan_config.get("name", "ner_experiment")  
         )  
+        
+    def on_train_begin(self, args, state, control, **kwargs):  
+        """训练开始时初始化"""  
+        if self.swan_run is None:  
+            self.run = swanlab.init(  
+                project=self.config.get("project", "NER-Experiment"),
+                config=self.config,  
+                experiment_name=self.config.get("name", "ner_experiment")  
+            )  
+
+    def on_train_end(self, args, state, control, **kwargs):  
+        """训练正常结束时释放资源"""  
+        if self.swan_run is not None:  
+            self.swan_run.finish()  
+
+    def on_error(self, args, state, control, **kwargs):  
+        """训练出错时处理"""  
+        if self.swan_run is not None:  
+            self.run.finish(state = "CRASHED", error=str(state.exception))
         
     def on_log(self, args, state, control, logs=None, **kwargs):  
         """实时记录训练指标到SwanLab"""  
@@ -227,7 +253,7 @@ class HybridModelTrainer:
                     "pin_memory": True  
                 },  
                 # 修正参数名称 (关键修改点)  
-                "stage3_gather_16bit_weights_on_cpu": True,  
+                # "stage3_gather_16bit_weights_on_cpu": True,  
                 "contiguous_gradients": True,  
                 "overlap_comm": True,  
                 "stage3_max_live_parameters": 1e9,  
@@ -254,9 +280,9 @@ class HybridModelTrainer:
                 }  
             },  
             "scheduler": {  
-                "type": "WarmupDecay",  
+                "type": "WarmupDecayLR",  
                 "params": {  
-                    "warmup_min_lr": 0,  
+                    "warmup_min_lr": 1e-6,  
                     "warmup_max_lr": self.config['learning_rate'],  
                     "warmup_num_steps": 500,  
                     "total_num_steps": self.config['max_steps']  
@@ -267,6 +293,7 @@ class HybridModelTrainer:
     
     def train(self, train_dataset, eval_dataset):
         print("train_dataset[0].keys() = ", train_dataset[0].keys())
+        print("train_dataset.features = ", train_dataset.features)
         print("train_dataset[0] = ", train_dataset[0])
         print("train_dataset[1] = ", train_dataset[0])
         # 初始化评估器  
@@ -277,6 +304,7 @@ class HybridModelTrainer:
         )  
         # 初始化训练参数
         training_args = TrainingArguments(
+            label_names=["labels"],  # 明确告诉Trainer标签字段名称为"labels"  
             num_train_epochs=self.config['num_train_epochs'],
             output_dir=self.config['output_dir'],
             evaluation_strategy="steps",
@@ -316,9 +344,21 @@ class HybridModelTrainer:
         )
         
         # 开始训练
-        trainer.train()
-        trainer.save_model(os.path.join(self.config['output_dir'], "hybrid_model"))
         
+        trainer.train()
+        
+        swanlab.finish()
+        # try:
+        #     trainer.train()
+        # except Exception as e:  
+        #     finish(error=str(e))  
+        # finally:
+        #     finish()  
+        #     os._exit(0)  
+
+        trainer.save_model(os.path.join(self.config['output_dir'], "hybrid_model"))
+        if torch.distributed.is_initialized():  
+            torch.distributed.destroy_process_group()  
         return trainer
     
     def _compute_moe_metrics(self, eval_pred):

@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-
+import argparse
 # 添加项目根目录到Python路径
 sys.path.append(str(Path(__file__).parent))
 
@@ -35,6 +35,15 @@ from src.finetune.ner_trainer import (
 from datasets import load_dataset, Dataset, DatasetDict
 
 
+def get_args():
+    parser = argparse.ArgumentParser(description="Process some integers.")
+    parser.add_argument('--mode', type=str, default='train', help='train or eval')
+    parser.add_argument('--ner_data_type', type=str, default='chinese_ner_sft', help='chinese_ner_sft or single_ner')
+    
+    
+    return parser.parse_args()
+
+
 
 def test_ner_dataset():
     from transformers import AutoTokenizer  
@@ -46,7 +55,11 @@ def test_ner_dataset():
     )  
     
     dataset = processor.load_and_process(CHINESE_NER_DATA_PATH)  
-
+    
+    print("dataset.keys() = ", dataset.keys())
+    print("dataset['train'].features = ", dataset['train'].features)
+    print("dataset['train][0] = ", dataset['train'][0])
+    
     save_path = Path("./src/data/processed_ner_data")
     save_path.mkdir(parents=True, exist_ok=True)
     dataset.save_to_disk(save_path)  
@@ -114,6 +127,7 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
         train_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in train_dataset]})
         eval_dataset = Dataset.from_dict({"features": [processor.align_labels(trainer.tokenizer, e) for e in eval_dataset]})
     else:
+        print("load Chinese NER data")
         processor:NERDataProcessor = trainer.processor
         train_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "train")
         eval_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "validation")
@@ -124,9 +138,8 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
     # 开始训练
     trainer.train(train_dataset, eval_dataset)
     
-    trainer:Trainer
+    trainer:HybridModelTrainer
     
-    trainer.save_model(HYBRID_MODEL_PATH)
 
 
 
@@ -160,7 +173,10 @@ def test_evaluator():
 
 
 
-
+def main():
+    args = get_args()
+    
+    
 
 if __name__ == "__main__":
     # test_ner_dataset()

@@ -18,7 +18,7 @@ import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from datasets import load_dataset, DatasetDict, Dataset
+from datasets import load_dataset, DatasetDict, Dataset, load_from_disk
 
 import logging
 logger = logging.getLogger(__name__) 
@@ -192,8 +192,8 @@ class NERDataProcessor:
                     all_data.append(processed)  
                     
                     
-        print("all_data.type", type(all_data))
-        print(all_data[:10])
+        # print("all_data.type", type(all_data))
+        # print(all_data[:10])
         dataset["train"] = all_data[:train_size]  
         dataset["validation"] = all_data[train_size:train_size+valid_size]  
         dataset["test"] = all_data[train_size+valid_size:train_size+valid_size+test_size]  
@@ -324,11 +324,41 @@ class NERDataProcessor:
         '''
         load huggingface format dataset
         '''
+        data_files = {  
+            "train": f"{data_path}/train/data-00000-of-00001.arrow",  
+            "validation": f"{data_path}/validation/data-00000-of-00001.arrow",  
+            "test": f"{data_path}/test/data-00000-of-00001.arrow"  
+        } 
         
+        ds = load_dataset(data_path, data_files = data_files, split = split)
         
-        ds = load_dataset(data_path, split = split)
-        
+        print("数据集结构示例:", ds)  
+        print("特征字段:", ds.features)  
+        print("首样本:", ds[0]) 
+                
         return ds
+    
+    
+    def load_json_data(self, data_path, split = "train"):
+        # 假设数据文件结构为：  
+        # data_path/  
+        #   train.json  
+        #   validation.json  
+        #   test.json  
+        
+        data_files = {  
+            "train": f"{data_path}/train.json",  
+            "validation": f"{data_path}/validation.json",  
+            "test": f"{data_path}/test.json"  
+        }  
+        
+        # 明确指定加载本地文件  
+        ds = load_dataset(  
+            "json",   
+            data_files=data_files,  
+            split=split  
+        )  
+        return ds  
         
 
 # 使用示例  
