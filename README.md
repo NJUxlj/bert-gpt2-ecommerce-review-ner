@@ -9,6 +9,55 @@
 
 
 
+## 模型架构设计
+
+### 整体架构
+项目将Bert作为编码器（Encoder），Qwen2作为解码器（Decoder），中间引入MoE机制，构建了一个名为 `Bert - MoE - Qwen2` 的混合模型，用于电商评论的NER任务。同时，使用LoRA（Low - Rank Adaptation）技术对该模型进行微调，以适应特定的NER任务。
+
+### 具体组件及架构细节
+
+#### 1. 编码器（Encoder） - Bert
+Bert（Bidirectional Encoder Representations from Transformers）是一种基于Transformer架构的预训练语言模型，在自然语言处理任务中表现出色。在本项目中，Bert作为编码器，负责对输入的电商评论进行特征提取和编码。
+- **代码体现**：在 `src/models/bert` 目录下包含了Bert相关的配置、建模和分词文件，如 `configuration_bert.py`、`modeling_bert.py` 和 `tokenization_bert.py`。
+- **初始化**：在 `src/finetune/ner_trainer.py` 中，通过 `BertConfig.from_pretrained(BERT_MODEL_PATH)` 初始化Bert的配置，并在 `_initialize_model` 方法中使用该配置构建 `BertMoEQwen2EncoderDecoder` 模型。
+
+#### 2. 混合专家（MoE）
+MoE是一种用于神经网络的技术，它通过在网络中引入多个专家（Expert）来提高模型的表达能力和泛化能力。
+- **代码体现**：在 `src/models/enc_dec_model.py` 中，通过 `MoE`类，定义了MoE模块。
+```python
+# 冻结MoE参数
+for param in model.moe.parameters():
+    param.requires_grad = False
+```
+
+#### 3. 解码器（Decoder） - Qwen2
+Qwen2是一种基于Transformer架构的语言模型，在本项目中作为解码器，负责根据编码器的输出生成NER任务的预测结果。
+- **代码体现**：在 `src/models/qwen2` 目录下包含了Qwen2相关的配置文件 `configuration_qwen2.py`，其中定义了Qwen2模型的各种参数，如词汇表大小、隐藏层维度、注意力头数量等。
+- **初始化**：在 `src/finetune/ner_trainer.py` 中，通过 `Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)` 初始化Qwen2的配置，并在 `_initialize_model` 方法中使用该配置构建 `BertMoEQwen2EncoderDecoder` 模型。
+
+#### 4. LoRA微调
+LoRA是一种轻量级的模型微调技术，它通过在预训练模型的参数上添加低秩矩阵来减少可训练参数的数量，从而提高微调效率。在本项目中，使用LoRA对 `Bert - MoE - Qwen2` 模型进行微调。
+- **代码体现**：在 `src/finetune/ner_trainer.py` 的 `_initialize_model` 方法中，定义了LoRA的配置，并使用 `get_peft_model` 函数将LoRA应用到模型上。
+```python
+# 分层LoRA配置
+lora_config = LoraConfig(
+    r=self.config['lora_rank'],
+    lora_alpha=32,
+    target_modules=[
+        "q_proj", "k_proj", "v_proj"
+    ],
+    lora_dropout=0.05,
+    bias="none",
+    modules_to_save=["classifier"],  # 分类头保持可训练
+    layers_to_transform=list(range(8, 12))  # 仅微调深层
+)
+model = get_peft_model(model, lora_config)
+```
+
+
+
+
+
 ## Project Structure
 ```
 bert-gpt2-ecommerce-review-ner
@@ -177,6 +226,49 @@ python main.py
 ## 训练截图
 - 由于要训练两个小时，我先把截图放在这里，训练结果以后再补充。
 ![training](bert-gpt2-ecommerce-review-ner/image/training_snapshot.png)
+
+
+
+
+
+## NER 评测指标
+
+1. **seqeval标准报告**：通过 `classification_report` 函数计算，使用 `IOB2` 方案和严格模式。
+```python
+results['classification_report'] = classification_report(
+    label_sequences,
+    pred_sequences,
+    scheme=IOB2,
+    mode='strict'
+)
+```
+2. **Token级别准确率**：通过 `accuracy_score` 函数计算。
+```python
+flat_preds = [p for seq in pred_sequences for p in seq]
+flat_labels = [l for seq in label_sequences for l in seq]
+results['token_accuracy'] = accuracy_score(flat_labels, flat_preds)
+```
+3. **细粒度实体评估**：
+    - **精确匹配（严格模式）**：计算精确匹配的实体数量，包括 `TP`（真正例）、`FP`（假正例）、`FN`（假反例），并计算 `precision`（精确率）、`recall`（召回率）和 `f1` 分数。
+    - **部分匹配**：计算部分匹配的实体数量，同样计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
+    - **仅类型匹配**：计算仅类型匹配的实体数量，计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
+
+```python
+for mode in ['strict', 'partial', 'type_only']:
+    tp = self.metrics[mode]['TP']
+    fp = self.metrics[mode]['FP']
+    fn = self.metrics[mode]['FN']
+    
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    results.update({
+        f'{mode}_precision': precision,
+        f'{mode}_recall': recall,
+        f'{mode}_f1': f1
+    })
+```
 
 
 ## Citation
