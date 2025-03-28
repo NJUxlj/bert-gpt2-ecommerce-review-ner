@@ -225,7 +225,7 @@ python main.py
 
 ## 训练截图
 - 由于要训练两个小时，我先把截图放在这里，训练结果以后再补充。
-![training](bert-gpt2-ecommerce-review-ner/image/training_snapshot.png)
+![training](image/training_snapshot.png)
 
 
 
