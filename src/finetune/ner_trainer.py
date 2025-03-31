@@ -44,7 +44,7 @@ from transformers import (
 )
 
 
-from src.models.enc_dec_model import BertMoEQwen2EncoderDecoder
+from src.models.enc_dec_model import BertMoEQwen2CRF
 
 from src.models.bert.configuration_bert import BertConfig
 from src.models.qwen2.configuration_qwen2 import Qwen2Config
@@ -213,7 +213,7 @@ class HybridModelTrainer:
     def _initialize_model(self):
         """加载混合模型并应用LoRA"""
         # 加载基础模型
-        model = BertMoEQwen2EncoderDecoder(
+        model = BertMoEQwen2CRF(
             bert_config=self.bert_config,
             qwen_config=self.qwen2_config,
             ner_config=self.ner_config

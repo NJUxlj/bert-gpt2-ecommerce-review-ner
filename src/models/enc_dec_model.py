@@ -20,6 +20,9 @@ from src.models.qwen2.configuration_qwen2 import Qwen2Config
 from src.models.bert.configuration_bert import BertConfig
 
 
+from src.models.crf import CRF
+
+
 from src.configs.config import BERT_MODEL_PATH, QWEN2_MODEL_PATH
 
 
@@ -232,7 +235,7 @@ class BertMoEQwen2PreTrainedModel(nn.Module):
         
     
 
-class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
+class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
     '''
     结合了Bert和Qwen2的命名实体识别模型， Bert作为Encoder， Qwen2作为Decoder, MoE插在Bert和Qwen2中间，Bert出来的每个Token都会选择一个Expert进行计算。计算得到后的隐向量再通过qwen2进行预测
     '''
@@ -254,6 +257,8 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
         self.moe = MoEModel(num_experts = 16, hidden_size = qwen_config.hidden_size)
 
         self.classifier = nn.Linear(qwen_config.hidden_size, self.num_ner_labels)
+        
+        self.crf = CRF(self.num_ner_labels, batch_first = True)
         
         # 初始化权重 [除了 self.encoder, self.decoder]
         self._init_weights(self.dim_adapter)
@@ -292,16 +297,20 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
         
         outputs = (logits,)
         if labels is not None:
-            loss_fct = nn.CrossEntropyLoss()
-            active_loss = attention_mask.view(-1) == 1   # attention_mask.view(-1) = (batch_size * seq_len)
-            active_logits = logits.view(-1, self.num_ner_labels)[active_loss]  # shape = (num_active_tokens, num_ner_labels)
-            active_labels = labels.view(-1)[active_loss]   # shape = (num_active_tokens,)
-            loss = loss_fct(active_logits, active_labels)  
+            
+            # 使用CRF计算损失
+            loss = -self.crf.forward(logits, labels, mask=attention_mask.byte())
+            
+            # loss_fct = nn.CrossEntropyLoss()
+            # active_loss = attention_mask.view(-1) == 1   # attention_mask.view(-1) = (batch_size * seq_len)
+            # active_logits = logits.view(-1, self.num_ner_labels)[active_loss]  # shape = (num_active_tokens, num_ner_labels)
+            # active_labels = labels.view(-1)[active_loss]   # shape = (num_active_tokens,)
+            # loss = loss_fct(active_logits, active_labels)  
             
             # 添加路由平衡正则项  
             loss += 0.01 * self.moe.balance_loss  
             outputs = (loss,) + outputs  
-
+        
         return outputs
     
     def predict(self, input_ids):
@@ -320,7 +329,11 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
             logits = outputs[0]  # (batch_size, seq_len, num_ner_labels)
             
             # 获取预测标签
-            preds = logits.argmax(-1).squeeze().cpu().numpy()  # (batch_size, seq_len)
+            # preds = logits.argmax(-1).squeeze().cpu().numpy()  # (batch_size, seq_len)
+
+            # 使用CRF解码获取预测标签
+            preds = self.crf.decode(logits, mask=attention_mask.byte())
+            preds = preds[0]  # 取batch中的第一个样本
     
     
         # 提取实体
@@ -365,9 +378,7 @@ class BertMoEQwen2EncoderDecoder(BertMoEQwen2PreTrainedModel):
         return result
         
         
-        
-        
-        
+
 
 
 '''

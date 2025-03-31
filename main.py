@@ -22,7 +22,7 @@ from src.configs.config import (
 )
 
 from transformers import AutoTokenizer,Trainer
-from src.models.enc_dec_model import BertMoEQwen2EncoderDecoder
+from src.models.enc_dec_model import BertMoEQwen2Encoder
 from src.data.simple_data_preprocess import SimpleNERDataProcessor
 from src.evaluation.evaluator import NEREvaluator
 
