@@ -492,23 +492,30 @@ class CRF(nn.Module):
                                     [0.5, 0.5, 0.5]],
 
                                         +
-                                    [[0.5, 0.5, 0.5],
-                                    [0.2, 0.2, 0.2], 
+                                    [[0.5, 0.5, 0.5],   broadcase_score
+                                    [0.2, 0.2, 0.2],        特点：每个current_tag 转到所有 next_tag 的分数都一样
                                     [0.3, 0.3, 0.3]],   他是所有current_tag转移到第一个next_tag的分数的广播
                                     
                                         +
-                                    [[0.5, 0.4, 0.1],
-                                    [0.5, 0.4, 0.1],   
+                                    [[0.5, 0.4, 0.1],    emission
+                                    [0.5, 0.4, 0.1],         特点：同一个 next_tag 转到所有 current_tag 的分数都一样, 所义，对于上面score中的 score[i][j] (从i转到j的分数)，我们应当在emission矩阵中去寻找从j转到所有next_tag的分数， 正好对应了emission矩阵的第j列。
                                     [0.5, 0.4, 0.1]],    他是第一个current_tag转移到所有next_tag的分数的广播
                                     
                                         =
                                         
                                     [[1.5, 1.4, 1.1],
                                     [1.2, 1.1, 0.8],
-                                    [1.3, 1.2, 0.9]]
+                                    [1.3, 1.2, 0.9]]       可以看出 next_score[0][i][j]  = 之前所有可以到达[i][j]的路径的总分 +  从i到j的转移分数 + 从j转移到任意一个tag的分数     
+                                    
+                                                       下一步 logsumexp，我们直接从j出发， 已经 不需要i了，因此，我们等下需要在i这一维做一个加和归约。 加的结果变成了从j出发的发射分数, shape = (bsz, num_tags)
+                                    
+                                    
+                                   经过 next_score = torch.logsumexp(next_score, dim=1)  
+                                   
+                                   [4.0, 3.7, 2.8]            
                     
             '''
-            next_score = broadcast_score + self.transitions + broadcast_emissions
+            next_score = broadcast_score + self.transitions + broadcast_emissions  # (bsz, num_tags, num_tags)
 
             # Sum over all possible current tags, but we're in score space, so a sum
             # becomes a log-sum-exp: 
@@ -624,6 +631,7 @@ class CRF(nn.Module):
     
     
     def _beam_search_decode(self, emissions: torch.Tensor, 
+                            beam_size = 5,
                             mask: Optional[torch.ByteTensor] = None)-> List[List[int]]:
         """Find the top-k most likely tag sequences using beam search algorithm.
 
