@@ -288,6 +288,11 @@ for mode in ['strict', 'partial', 'type_only']:
 ```
 
 
+## 预测结果
+
+![prediction result](image/prediction_result.png)
+
+
 ## Citation
 
 - 暂时没有

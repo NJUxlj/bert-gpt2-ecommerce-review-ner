@@ -140,6 +140,32 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
     
     trainer:HybridModelTrainer
     
+    
+    
+
+
+def test_predict():
+    bert_config = BertConfig.from_pretrained(BERT_MODEL_PATH)
+    qwen2_config = Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)
+    ner_config = NerConfig()
+    
+    
+    model = BertMoEQwen2CRF(
+            bert_config=bert_config,
+            qwen_config=qwen2_config,
+            ner_config=ner_config
+        )
+    
+    result = model.predict("你是什么人？")
+
+    print("================================")
+    
+    import json
+    
+    with open("predict_result.json", "w", encoding="utf8") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+    print(result)
+    
 
 
 
@@ -181,4 +207,7 @@ def main():
 if __name__ == "__main__":
     # test_ner_dataset()
     
-    test_trainer()
+    # test_trainer()
+    
+    
+    test_predict()

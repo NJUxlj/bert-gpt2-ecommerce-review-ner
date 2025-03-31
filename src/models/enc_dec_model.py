@@ -256,6 +256,8 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
     def __init__(self, bert_config: BertConfig, qwen_config:Qwen2Config, ner_config:NerConfig):
         super().__init__()  
         
+        self.max_length = bert_config.max_position_embeddings
+        
         self.ner_config = ner_config
         
         self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
@@ -333,11 +335,27 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
         
         return outputs
     
-    def predict(self, input_ids, decode_method:Literal["viterbi", "beam_search"]="viterbi"):
+    def predict(self, prompt:str, decode_method:Literal["viterbi", "beam_search"]="viterbi"):
         '''
         用于推理的成员函数， 为input_ids中的每个token预测一个实体标签。
         根据预测出的实体标签，将每个实体字符串提取出来，形成 [{实体字符串:{"start_pos":..., "end_pos":..., "entity_type":...}}, {...}] 的字典列表
         '''
+        print("用户query = ", prompt)
+        
+        tokens = list(prompt)  # 字符级分词
+        
+        input_ids = self.tokenizer(
+            tokens,  
+            is_split_into_words=True,  
+            truncation=True,  
+            max_length=self.max_length,
+            padding = "max_length",
+            return_offsets_mapping=True,  # 必须要返回偏移量映射，因为我们使用的是 bert-base-chinese, 他会自动在中文词之前加上两个##  
+            return_token_type_ids=False,
+            return_tensors="pt"
+        )
+        
+        input_ids = input_ids["input_ids"]
         
         self.eval()
         with torch.no_grad():
@@ -394,6 +412,8 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
             "end_pos": e["end_pos"],
             "entity_type": e["entity_type"]
         }} for e in entities]
+        
+        
         
         return result
         
