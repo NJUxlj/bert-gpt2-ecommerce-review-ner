@@ -1,5 +1,5 @@
 # bert-qwen2-ecommerce-review-ner
-基于Bert+MoE+Qwen2改造和LoRA微调的Encoder-Decoder电商评论NER模型
+基于 Bert + MoE + Qwen2 + CRF 改造和LoRA微调的电商评论NER模型
 
 
 ## Project Description
@@ -59,7 +59,7 @@ model = get_peft_model(model, lora_config)
 
 
 ## Project Structure
-```
+```Plain Text
 bert-gpt2-ecommerce-review-ner
 ├── README.md
 ├── src
@@ -70,6 +70,14 @@ bert-gpt2-ecommerce-review-ner
                  |—— test
                  |—— train
                  |—— schema.json
+         |--- chinese_ner_sft
+                 |--- data
+                 |--- examples
+         |--- processed_ner_data # chinese_ner_sft经过data_preprocess.py处理后的数据
+                 |---train
+                 |---test
+                 |---validation
+
 │   |── utils
 │   ├── configs
 │       |——— config.py
@@ -80,14 +88,16 @@ bert-gpt2-ecommerce-review-ner
               |── configuration_bert.py
               |── modeling_bert.py
               |── tokenization_bert.py
-|       ├── gpt2
-              |── configuration_gpt2.py
-              |── modeling_gpt2.py
-              |── tokenization_gpt2.py
-        |── enc_dec_model.py    # 将bert作为Encoder，gpt2作为Decoder， 组成一个完整的Encoder-Decoder模型
+        |── enc_dec_model.py    # Bert+MoE+Qwen2+CRF 模型的定义文件
+        |--- bert_ner_model.py  # Bert+CRF 模型的定义文件
+        |--- qwen2
+              |—— configuration_qwen2.py
+              |—— modeling_qwen2.py
+              |—— tokenization_qwen2.py
+        |--- crf.py   # 定义CRF模型 包括 Beam_Search + Viterbi 算法
  
 │   ├── finetune
-│       |—— ner_trainer.py 
+│       |—— ner_trainer.py   # 主训练类
 |—— main.py # 主训练文件， 用来调用所有在src中封装好的API
 
 
@@ -97,7 +107,9 @@ bert-gpt2-ecommerce-review-ner
 
 - `train` 中的数据示例
 
+
 ```Plain Text
+
 他 O
 说 O
 : O
@@ -126,6 +138,7 @@ bert-gpt2-ecommerce-review-ner
 ```
 
 - `dev` 和 `test` 中的数据示例
+
 ```Plain Text
 , O
 通 O
