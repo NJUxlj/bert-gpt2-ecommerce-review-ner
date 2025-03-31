@@ -3,16 +3,16 @@
 
 
 ## Project Description
-- 将Bert (Encoder) 和 MoE 和 Qwen2 (Decoder) 拼接起来，来完整最终的电商评论NER任务。
-- 我们将这个拼接起来的模型称之为 `Bert-MoE-Qwen2`
-- 使用LoRA对`Bert-MoE-Qwen2`模型在NER任务上进行微调。
+- 将Bert (Encoder) 和 MoE 和 Qwen2 (Decoder) 拼接起来，最后加上一个CRF层，来完整最终的电商评论NER任务。
+- 我们将这个拼接起来的模型称之为 `Bert-MoE-Qwen2-CRF`
+- 然后，再使用LoRA对`Bert-MoE-Qwen2-CRF`模型在NER任务上进行微调。
 
 
 
 ## 模型架构设计
 
 ### 整体架构
-项目将Bert作为编码器（Encoder），Qwen2作为解码器（Decoder），中间引入MoE机制，构建了一个名为 `Bert - MoE - Qwen2` 的混合模型，用于电商评论的NER任务。同时，使用LoRA（Low - Rank Adaptation）技术对该模型进行微调，以适应特定的NER任务。
+项目将Bert, MoE, Qwen2的encoder部分拼接到一起，构建了一个名为 `BertMoEQwen2CRF` 的混合模型，用于电商评论的NER任务。同时，使用基于transformers库的LoRA技术对该模型进行微调，以适应特定的NER任务。
 
 ### 具体组件及架构细节
 
@@ -21,7 +21,7 @@ Bert（Bidirectional Encoder Representations from Transformers）是一种基于
 - **代码体现**：在 `src/models/bert` 目录下包含了Bert相关的配置、建模和分词文件，如 `configuration_bert.py`、`modeling_bert.py` 和 `tokenization_bert.py`。
 - **初始化**：在 `src/finetune/ner_trainer.py` 中，通过 `BertConfig.from_pretrained(BERT_MODEL_PATH)` 初始化Bert的配置，并在 `_initialize_model` 方法中使用该配置构建 `BertMoEQwen2EncoderDecoder` 模型。
 
-#### 2. 混合专家（MoE）
+#### 2. MoE
 MoE是一种用于神经网络的技术，它通过在网络中引入多个专家（Expert）来提高模型的表达能力和泛化能力。
 - **代码体现**：在 `src/models/enc_dec_model.py` 中，通过 `MoE`类，定义了MoE模块。
 ```python
@@ -30,8 +30,8 @@ for param in model.moe.parameters():
     param.requires_grad = False
 ```
 
-#### 3. 解码器（Decoder） - Qwen2
-Qwen2是一种基于Transformer架构的语言模型，在本项目中作为解码器，负责根据编码器的输出生成NER任务的预测结果。
+#### 3. 编码器（Qwen2）
+- Qwen2是一种基于Decoder-only架构的语言模型，在本项目中我们仅抽取它的encoder部分(去除LM-Head, 仅使用Qwen2Model类)，负责根据encoder输出的last_hidden_state, 过一个classifier， 再过CRF层，来预测句子中的每个word_id 的NER标签。
 - **代码体现**：在 `src/models/qwen2` 目录下包含了Qwen2相关的配置文件 `configuration_qwen2.py`，其中定义了Qwen2模型的各种参数，如词汇表大小、隐藏层维度、注意力头数量等。
 - **初始化**：在 `src/finetune/ner_trainer.py` 中，通过 `Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)` 初始化Qwen2的配置，并在 `_initialize_model` 方法中使用该配置构建 `BertMoEQwen2EncoderDecoder` 模型。
 
@@ -224,8 +224,10 @@ python main.py
 
 
 ## 训练截图
-- 由于要训练两个小时，我先把截图放在这里，训练结果以后再补充。
+- 我先把部分结果截图放在这里，以后再补充。
 ![training](image/training_snapshot.png)
+
+![training](image/training_snapshot2.png)
 
 
 
