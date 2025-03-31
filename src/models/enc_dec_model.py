@@ -333,7 +333,7 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
         
         return outputs
     
-    def predict(self, input_ids):
+    def predict(self, input_ids, decode_method:Literal["viterbi", "beam_search"]="viterbi"):
         '''
         用于推理的成员函数， 为input_ids中的每个token预测一个实体标签。
         根据预测出的实体标签，将每个实体字符串提取出来，形成 [{实体字符串:{"start_pos":..., "end_pos":..., "entity_type":...}}, {...}] 的字典列表
@@ -352,7 +352,7 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
             # preds = logits.argmax(-1).squeeze().cpu().numpy()  # (batch_size, seq_len)
 
             # 使用CRF解码获取预测标签
-            preds = self.crf.decode(logits, mask=attention_mask.byte())
+            preds = self.crf.decode(logits, mask=attention_mask.byte(), decode_method=decode_method)
             preds = preds[0]  # 取batch中的第一个样本
     
     

@@ -3,6 +3,8 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 
+from typing import Literal, List, Dict
+
 
 class CRF(nn.Module):
     """Conditional random field.
@@ -138,7 +140,9 @@ class CRF(nn.Module):
         return llh.sum() / mask.float().sum()
 
     def decode(self, emissions: torch.Tensor,
-               mask: Optional[torch.ByteTensor] = None) -> List[List[int]]:
+               mask: Optional[torch.ByteTensor] = None,
+               decode_method:Literal["viterbi", "beam_search"]="viterbi",
+               ) -> List[List[int]]:
         """Find the most likely tag sequence using Viterbi algorithm.
 
         Args:
@@ -159,7 +163,10 @@ class CRF(nn.Module):
             emissions = emissions.transpose(0, 1)
             mask = mask.transpose(0, 1)
 
-        return self._viterbi_decode(emissions, mask)
+        if decode_method == 'viterbi':
+            return self._viterbi_decode(emissions, mask)
+        else:
+            return self._beam_search_decode(emissions = emissions, mask = mask)
     
     
 
@@ -631,8 +638,9 @@ class CRF(nn.Module):
     
     
     def _beam_search_decode(self, emissions: torch.Tensor, 
+                            mask: Optional[torch.ByteTensor] = None,
                             beam_size = 5,
-                            mask: Optional[torch.ByteTensor] = None)-> List[List[int]]:
+                            )-> List[List[int]]:
         """Find the top-k most likely tag sequences using beam search algorithm.
 
         Args:

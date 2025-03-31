@@ -244,7 +244,9 @@ python main.py
 
 
 
+## 用户可自行选择使用 Beam Search 或是 Viterbi CRF解码算法
 
+![Decoding](image/decode_method.png)
 
 ## NER 评测指标
 
