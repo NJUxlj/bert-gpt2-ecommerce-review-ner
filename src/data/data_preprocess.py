@@ -334,7 +334,7 @@ class NERDataProcessor:
         
         print("数据集结构示例:", ds)  
         print("特征字段:", ds.features)  
-        print("首样本:", ds[0]) 
+        # print("首样本:", ds[0]) 
                 
         return ds
     

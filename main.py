@@ -8,7 +8,7 @@ from src.data.data_preprocess import NERDataProcessor
 
 from src.models.bert.configuration_bert import BertConfig
 from src.models.qwen2.configuration_qwen2 import Qwen2Config
-from src.models.enc_dec_model import NerConfig
+from src.configs.config import NerConfig
 
 
 from src.configs.config import (
@@ -22,7 +22,7 @@ from src.configs.config import (
 )
 
 from transformers import AutoTokenizer,Trainer
-from src.models.enc_dec_model import BertMoEQwen2Encoder
+from src.models.enc_dec_model import BertMoEQwen2CRF
 from src.data.simple_data_preprocess import SimpleNERDataProcessor
 from src.evaluation.evaluator import NEREvaluator
 
@@ -150,7 +150,7 @@ def test_evaluator():
     # 初始化组件
     processor = SimpleNERDataProcessor(SCHEMA_PATH)
     tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
-    model = BertMoEQwen2EncoderDecoder(BertConfig(), Qwen2Config(), NerConfig())
+    model = BertMoEQwen2CRF(BertConfig(), Qwen2Config(), NerConfig())
     
     # 加载测试数据
     test_examples = processor.get_test_examples("data/test.txt")

@@ -38,3 +38,46 @@ sft_config = {
 
 
 }
+
+
+from typing import Literal, Dict, List, Tuple, Optional
+from collections import defaultdict
+
+class NerConfig:
+    
+    
+    def __init__(
+        self, 
+        ner_data_type:Literal["chinese_ner_sft", "simple_ner"] = "chinese_ner_sft",
+        label2id:Dict = defaultdict(int),
+        num_ner_labels: int = 9
+        ):
+        
+        
+        self.ner_data_type = ner_data_type
+        
+        self.decode_method: Literal["viterbi", "beam_search"] = "viterbi"
+    
+        self.label2id = {
+            "O": 0,
+            "B-HCCX": 1,
+            "B-MISC": 2,
+            "B-HPPX": 3,
+            "B-XH": 4,
+            "I-HCCX": 5,
+            "I-MISC": 6,
+            "I-HPPX": 7,
+            "I-XH": 8
+        } if self.ner_data_type == "chinese_ner_sft" else {
+            "B-LOCATION": 0,
+            "B-ORGANIZATION": 1,
+            "B-PERSON": 2,
+            "B-TIME": 3,
+            "I-LOCATION": 4,
+            "I-ORGANIZATION": 5,
+            "I-PERSON": 6,
+            "I-TIME": 7,
+            "O": 8
+        }
+        
+        self.num_ner_labels = len(self.label2id.keys())

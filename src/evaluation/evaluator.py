@@ -140,16 +140,31 @@ class NEREvaluator:
         overlap_end = min(pred_end, true_end)
         return (overlap_start < overlap_end) and (pred_type == true_type)
 
-    def evaluate(self, dataset):
+    def evaluate(self, dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         self.model.eval()
         all_preds = []
         all_labels = []
         
+        print("eval dataset structure:", dataset)  
+        print("eval dataset features  =", dataset.features)
+        
         with torch.no_grad():
             for example in tqdm(dataset, desc="Evaluating"):
-                features = self.processor.align_labels(
-                    self.tokenizer, example
-                )
+                
+                # print("example = ", example)
+                
+                assert isinstance(example, dict) and "labels" in example, "example must be a dict and must contain 'labels' key"
+                
+                if isinstance(self.processor, SimpleNERDataProcessor):
+                    features = self.processor.align_labels(
+                        self.tokenizer, example
+                    )
+                else:
+                    # features = self.processor._tokenize_and_align_labels(
+                    #     self.tokenizer, example["labels"]
+                    # )
+                    features = example
+                
                 
                 # 转为张量
                 inputs = {
@@ -163,7 +178,7 @@ class NEREvaluator:
                 
                 # 前向传播
                 outputs = self.model(**inputs)
-                logits = outputs[0].detach().cpu().numpy()
+                logits = outputs[0].to(torch.float16).detach().cpu().numpy()
                 
                 # 获取预测结果
                 preds = np.argmax(logits, axis=2).squeeze(0)
@@ -189,7 +204,7 @@ class NEREvaluator:
         # 2. Token级别准确率
         flat_preds = [p for seq in pred_sequences for p in seq]
         flat_labels = [l for seq in label_sequences for l in seq]
-        results['token_accuracy'] = accuracy_score(flat_labels, flat_preds)
+        results['eval_token_accuracy'] = accuracy_score(flat_labels, flat_preds)
         
         # 3. 细粒度实体评估
         for pred_seq, true_seq in zip(pred_sequences, label_sequences):
@@ -206,9 +221,9 @@ class NEREvaluator:
             f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
             
             results.update({
-                f'{mode}_precision': precision,
-                f'{mode}_recall': recall,
-                f'{mode}_f1': f1
+                f'eval_{mode}_precision': precision,
+                f'eval_{mode}_recall': recall,
+                f'eval_{mode}_f1': f1
             })
         
         return results

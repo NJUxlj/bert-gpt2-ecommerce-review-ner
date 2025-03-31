@@ -104,18 +104,19 @@ class SimpleNERDataProcessor:
             truncation=True,
             max_length=self.max_seq_length,
             is_split_into_words=True,
-            return_offsets_mapping=True
+            return_offsets_mapping=True,
+            return_token_type_ids=False  
         )
         
         # 第二步：构建专家掩码（标识需要MoE处理的token）
-        expert_mask = []
-        for word_idx in encoding.word_ids:
-            if word_idx is None:  # 特殊token
-                expert_mask.append(0)
-            else:
-                # 根据原始标签决定是否需要专家处理
-                original_label = example.labels[word_idx]
-                expert_mask.append(1 if original_label != self.tag2id["O"] else 0)
+        # expert_mask = []
+        # for word_idx in encoding.word_ids:
+        #     if word_idx is None:  # 特殊token
+        #         expert_mask.append(0)
+        #     else:
+        #         # 根据原始标签决定是否需要专家处理
+        #         original_label = example.labels[word_idx]
+        #         expert_mask.append(1 if original_label != self.tag2id["O"] else 0)
         
         # 第三步：标签对齐策略（处理子词分词问题）
         labels = []
@@ -134,7 +135,7 @@ class SimpleNERDataProcessor:
             "input_ids": encoding["input_ids"],
             "attention_mask": encoding["attention_mask"],
             "labels": labels,
-            "expert_mask": expert_mask[:self.max_seq_length]
+            # "expert_mask": expert_mask[:self.max_seq_length]
         }
         
         # 针对BERT需要token_type_ids

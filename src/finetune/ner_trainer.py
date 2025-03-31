@@ -128,18 +128,22 @@ class EnhancedTrainer(Trainer):
         self.add_callback(self.swan_callback)  
         
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):  
-        """使用自定义评估器进行验证"""  
+        """使用自定义评估器进行验证""" 
+        # 使用实例的 eval_dataset 如果参数未提供  
+        if eval_dataset is None:  
+            eval_dataset = self.eval_dataset  
+         
         # 执行父类评估获取基础指标  
         eval_results = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)  
-        
+        # eval_results = {}
         # 执行扩展评估  
         extended_metrics = self.evaluator.evaluate(eval_dataset)  
         
         # 合并指标  
         eval_results.update({  
-            "strict_f1": extended_metrics["strict_f1"],  
-            "partial_f1": extended_metrics["partial_f1"],  
-            "token_acc": extended_metrics["token_accuracy"]  
+            "eval_strict_f1": extended_metrics["eval_strict_f1"],  
+            "eval_partial_f1": extended_metrics["eval_partial_f1"],  
+            "eval_token_acc": extended_metrics["eval_token_accuracy"]  
         })  
         
         return eval_results 
@@ -170,9 +174,9 @@ class HybridModelTrainer:
                             "model_path": "path/to/pretrained_model",
                             "bert_model_name": BERT_MODEL_PATH,
                             "max_seq_length": 512,
-                            "batch_size": 16,
+                            "batch_size": 32,
                             "learning_rate": 3e-4,
-                            "max_steps": 10000,
+                            "max_steps": 500,
                             "output_dir": "./output",
                             "lora_rank": 8,
                             "ner_data_type": "chinese_ner_sft",
@@ -284,7 +288,7 @@ class HybridModelTrainer:
                 "params": {  
                     "warmup_min_lr": 1e-6,  
                     "warmup_max_lr": self.config['learning_rate'],  
-                    "warmup_num_steps": 500,  
+                    "warmup_num_steps": "auto",  
                     "total_num_steps": self.config['max_steps']  
                 }  
             }  
@@ -292,10 +296,17 @@ class HybridModelTrainer:
 
     
     def train(self, train_dataset, eval_dataset):
+        print("===================================================")
         print("train_dataset[0].keys() = ", train_dataset[0].keys())
         print("train_dataset.features = ", train_dataset.features)
-        print("train_dataset[0] = ", train_dataset[0])
-        print("train_dataset[1] = ", train_dataset[0])
+        print("-------------------------------------------")
+        print("eval_dataset[0].keys() = ", eval_dataset[0].keys())
+        print("eval_dataset.features = ", eval_dataset.features)
+        print("===================================================")
+
+
+        # print("train_dataset[0] = ", train_dataset[0])
+        # print("train_dataset[1] = ", train_dataset[0])
         # 初始化评估器  
         evaluator = NEREvaluator(  
             model=self.model,  
@@ -308,8 +319,8 @@ class HybridModelTrainer:
             num_train_epochs=self.config['num_train_epochs'],
             output_dir=self.config['output_dir'],
             evaluation_strategy="steps",
-            eval_steps=500,
-            save_steps=1000,
+            eval_steps=100,
+            save_steps=500,
             logging_steps=100,
             max_steps=self.config['max_steps'],
             per_device_train_batch_size=self.config['batch_size'],
@@ -325,7 +336,7 @@ class HybridModelTrainer:
             remove_unused_columns=False,
             fp16=False,
             bf16=True,
-            warmup_steps=500,
+            warmup_steps=50,
         )
         
         # 创建增强版Trainer

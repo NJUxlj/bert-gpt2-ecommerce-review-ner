@@ -112,14 +112,19 @@ class CRF(nn.Module):
 
         # shape: (batch_size,)
         # 计算分子（路径得分）
+        # print(" CRF compute score")
         numerator = self._compute_score(emissions, tags, mask)
+        # print("CRF compute score end ~~~")
         
         # shape: (batch_size,)
         # 计算分母（归一化因子）, 用来对上面的路径分数进行归一化
+        # print(" CRF compute normalizer start")
         denominator = self._compute_normalizer(emissions, mask)
+        # print(" CRF compute normalizer end !!!")
         
         # shape: (batch_size,)
         # 计算对数似然
+        # print(" CRF compute llh 对数似然")
         llh = numerator - denominator  # logA-logB = log(A/B)
         
         # 对结果进行归约
@@ -219,6 +224,9 @@ class CRF(nn.Module):
         assert emissions.size(2) == self.num_tags
         assert mask.shape == tags.shape
         assert mask[0].all() # 所有batch上的第一个token的mask必须为True
+        
+        assert (tags >= 0).all() and (tags < self.num_tags).all(), \
+            f"标签索引越界：有效范围[0,{self.num_tags-1}]，实际范围[{tags.min()}, {tags.max()}]"  
 
         seq_length, batch_size = tags.shape
         mask = mask.float()
@@ -235,7 +243,7 @@ class CRF(nn.Module):
         # 假设 tag[0] = [12, 30, 9, 2, 1]
         # start_transitions[[12, 30, 9, 2, 1]] = [0.2, 0.3, 0.1, 0.05, 0.0]
         # 就是通过一个tag下标列表，来获得一个tag转移概率列表，作为初始的转移分数
-        score = self.start_transitions[tags[0]]
+        score = self.start_transitions[tags[0]] # shape = (batch_size,)
         
         '''
          score 这么赋值的含义：
@@ -243,7 +251,15 @@ class CRF(nn.Module):
         '''
         
         # 拿到 每个序列 在第0个时间步 的发射分数（发射到tag[0]中的标签)
-        score += emissions[0, torch.arange(batch_size), tags[0]]
+            # emissions: (seq_length, batch_size, num_tags)
+            # tags 的形状是 (seq_length, batch_size)
+            # tags[0] 的形状是 (batch_size,)（取第一个时间步的所有标签）
+            
+            # 第一个索引 0：选择第一个时间步 → 结果形状变为 (batch_size, num_tags)
+            # 第二个索引 torch.arange(batch_size)：选择所有batch样本 → 保持 (batch_size, num_tags)
+            # 第三个索引 tags[0]：为每个样本选择对应标签 → 从 num_tags 维度中选择1个
+                # 最终为每个样本 i 选择 emissions[0, i, tags[0][i]] 的值
+        score += emissions[0, torch.arange(batch_size), tags[0]]   # shape = (batch_size, )
         '''
             为每个序列的初始得分添加其在第一个时间步的发射分数。
             完成了路径得分的第一步计算，即初始转移分数加上第一个时间步的发射分数。
@@ -252,6 +268,10 @@ class CRF(nn.Module):
             emissions[0]
                 形状：(batch_size, num_tags)
                 含义：第一个时间步的发射分数，针对每个序列和每个可能的标签。
+                
+            tags.shape = (seq_length, batch_size)  真实的标签
+            
+            tags[0].shape = (bsz, )
             
             emissions[0, torch.arange(batch_size), tags[0]]
 
@@ -509,7 +529,7 @@ class CRF(nn.Module):
             '''
                 更新每个序列在第i个时间步的累积的转移分数+发射分数
             '''
-            score = torch.where(mask[i].unsqueeze(1), next_score, score)
+            score = torch.where(mask[i].unsqueeze(1)==1, next_score, score)
 
         # End transition score
         # shape: (batch_size, num_tags)

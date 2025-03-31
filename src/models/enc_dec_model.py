@@ -36,42 +36,44 @@ from dataclasses import dataclass
 
 from collections import defaultdict
 
-class NerConfig:
+from src.configs.config import NerConfig
+
+# class NerConfig:
     
     
-    def __init__(
-        self, 
-        ner_data_type:Literal["chinese_ner_sft", "simple_ner"] = "chinese_ner_sft",
-        label2id:Dict = defaultdict(int),
-        num_ner_labels: int = 9
-        ):
+#     def __init__(
+#         self, 
+#         ner_data_type:Literal["chinese_ner_sft", "simple_ner"] = "chinese_ner_sft",
+#         label2id:Dict = defaultdict(int),
+#         num_ner_labels: int = 9
+#         ):
         
         
-        self.ner_data_type = ner_data_type
+#         self.ner_data_type = ner_data_type
     
-        self.label2id = {
-            "O": 0,
-            "B-HCCX": 1,
-            "B-MISC": 2,
-            "B-HPPX": 3,
-            "B-XH": 4,
-            "I-HCCX": 5,
-            "I-MISC": 6,
-            "I-HPPX": 7,
-            "I-XH": 8
-        } if self.ner_data_type == "chinese_ner_sft" else {
-            "B-LOCATION": 0,
-            "B-ORGANIZATION": 1,
-            "B-PERSON": 2,
-            "B-TIME": 3,
-            "I-LOCATION": 4,
-            "I-ORGANIZATION": 5,
-            "I-PERSON": 6,
-            "I-TIME": 7,
-            "O": 8
-        }
+#         self.label2id = {
+#             "O": 0,
+#             "B-HCCX": 1,
+#             "B-MISC": 2,
+#             "B-HPPX": 3,
+#             "B-XH": 4,
+#             "I-HCCX": 5,
+#             "I-MISC": 6,
+#             "I-HPPX": 7,
+#             "I-XH": 8
+#         } if self.ner_data_type == "chinese_ner_sft" else {
+#             "B-LOCATION": 0,
+#             "B-ORGANIZATION": 1,
+#             "B-PERSON": 2,
+#             "B-TIME": 3,
+#             "I-LOCATION": 4,
+#             "I-ORGANIZATION": 5,
+#             "I-PERSON": 6,
+#             "I-TIME": 7,
+#             "O": 8
+#         }
         
-        self.num_ner_labels = len(self.label2id.keys())
+#         self.num_ner_labels = len(self.label2id.keys())
     
 
     
@@ -119,6 +121,14 @@ class MoEModel(nn.Module):
         top_k_weights, top_k_indices = probs.topk(k=self.top_k, dim=-1)
         
         
+        # 添加索引范围强制约束  
+        top_k_indices = torch.clamp(top_k_indices, min=0, max=self.num_experts-1)  
+
+        # 添加调试断言  
+        assert torch.all(top_k_indices >= 0), "Negative indices detected!"  
+        assert torch.all(top_k_indices < self.num_experts), f"Index exceeds {self.num_experts-1}" 
+        
+        
         # 专家处理
         expert_outputs = []
         for expert in self.experts:
@@ -150,7 +160,11 @@ class MoEModel(nn.Module):
             # 这个计算的核心作用是：为每个token创建独立的索引空间，确保不同token选择的专家索引不会冲突
         flat_indices = top_k_indices + base_offset  # 广播规则：(B,S,K) + (B,S,1) → (B,S,K)
         assert flat_indices.size() == (batch_size, seq_len, self.top_k), f"flat_indices size error, got {flat_indices.size()}, expected {(batch_size, seq_len, self.top_k)}"
-        
+        # print(f"TopK indices range: [{top_k_indices.min().item()}, {top_k_indices.max().item()}]")  
+        # print(f"Flat indices range: [{flat_indices.min().item()}, {flat_indices.max().item()}]")  
+        assert len(self.experts) == self.num_experts, \
+                f"Expert count mismatch: {len(self.experts)} vs config {self.num_experts}"  
+
         flat_indices = flat_indices.view(-1)  # 展平为 (B*S*K)  
         
         assert expert_outputs.size() == (batch_size, seq_len, self.num_experts, self.hidden_size), f"expert_outputs size error, got {expert_outputs.size()}, expected {(batch_size, seq_len, self.num_experts, self.hidden_size)}"  
@@ -164,9 +178,9 @@ class MoEModel(nn.Module):
         
         
         
-        print(f"expert_outputs shape: {expert_outputs.shape}")  
-        print(f"flat_indices shape: {flat_indices.shape}")  
-        print(f"selected_outputs shape: {selected_outputs.shape}")  
+        # print(f"expert_outputs shape: {expert_outputs.shape}")  
+        # print(f"flat_indices shape: {flat_indices.shape}")  
+        # print(f"selected_outputs shape: {selected_outputs.shape}")  
         
         
         # 专家输出的 加权求和（爱因斯坦求和约定, 实际上就是对位相乘）：
@@ -186,7 +200,7 @@ class MoEModel(nn.Module):
         '''
         output = torch.einsum('bskh,bsk->bsh', selected_outputs, top_k_weights)
 
-        print("einsum_output.shape = ", output.shape)
+        # print("einsum_output.shape = ", output.shape)
         # 计算步骤分解：
             # 1. 维度扩展：将top_k_weights从(B,S,K)扩展为(B,S,K,1)
             # 2. 逐元素相乘：selected_outputs * top_k_weights → (B,S,K,H)
@@ -196,12 +210,12 @@ class MoEModel(nn.Module):
         # 计算专家使用频率（沿batch和sequence维度平均，得到每个专家的全局使用概率）
             # 示例：若有4个专家，可能得到 [0.3, 0.2, 0.4, 0.1]
         expert_usage = probs.mean(dim=[0,1])  # 形状：(num_experts,)  # 输入probs形状：(B,S,N) → 输出形状：(N,)
-        print(f"expert_usage shape: {expert_usage.shape}")
+        # print(f"expert_usage shape: {expert_usage.shape}")
 
         # 计算熵形式的平衡损失（鼓励均匀分布）
             # 当所有专家使用率相等时熵最大（平衡状态），损失值（负熵）最小
         self.balance_loss = - (expert_usage * torch.log(expert_usage + 1e-12)).sum()  # 标量值
-        print(f"self.balance_loss: {self.balance_loss}")
+        # print(f"self.balance_loss: {self.balance_loss}")
         '''~
         该损失函数的作用：
 
@@ -242,6 +256,8 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
     def __init__(self, bert_config: BertConfig, qwen_config:Qwen2Config, ner_config:NerConfig):
         super().__init__()  
         
+        self.ner_config = ner_config
+        
         self.tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
         print("BertMoEQwen2EncoderDecoder tokenizer 加载完毕 ~~~~")
         self.id2label = {i: tag for i, tag in enumerate(ner_config.label2id)}
@@ -265,7 +281,9 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
         self._init_weights(self.moe)
         self._init_weights(self.classifier)
         
-
+    def _preprocess_labels(self, labels, ner_config:NerConfig):  
+        valid_label_id = ner_config.label2id["O"]  # 假设用'O'作为填充标签的替代  
+        return torch.where(labels == -100, valid_label_id, labels)  
         
         
     def forward(
@@ -281,25 +299,27 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
         ).last_hidden_state    # shape = (batch_size, seq_len, bert_hidden_size)
          
         adapted_hidden = self.dim_adapter(encoder_outputs) # shape = (batch_size, seq_len, qwen2_hidden_size)
-        print("adapted_hidden.shape = ", adapted_hidden.shape)
+        # print("adapted_hidden.shape = ", adapted_hidden.shape)
         # MoE处理
         moe_output = self.moe(adapted_hidden)  # shape = (batch_size, seq_len, qwen2_hidden_size)
         
-        
+        # print("Qwen2 start ~~~~")
         # Qwen2
         decoder_outputs = self.decoder.forward(
             inputs_embeds = moe_output,
             attention_mask = attention_mask
         ).last_hidden_state  # shape = (batch_size, seq_len, qen2_hidden_size)
         
-        
+        # print("Qwen2 finish ~~~")
         logits = self.classifier.forward(decoder_outputs)  # shape = (batch_size, seq_len, num_ner_labels)
         
         outputs = (logits,)
         if labels is not None:
-            
+            labels  = self._preprocess_labels(labels, self.ner_config)
             # 使用CRF计算损失
-            loss = -self.crf.forward(logits, labels, mask=attention_mask.byte())
+            # print("CRF start")
+            loss = -self.crf.forward(logits, labels, mask=attention_mask)
+            # print("CRF end !!!")
             
             # loss_fct = nn.CrossEntropyLoss()
             # active_loss = attention_mask.view(-1) == 1   # attention_mask.view(-1) = (batch_size * seq_len)
