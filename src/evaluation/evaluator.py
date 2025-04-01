@@ -41,8 +41,14 @@ class NEREvaluator:
         """将标签ID序列转换为BIO标签"""
         return [self.processor.id2tag.get(i, "O") for i in ids]
 
-    def _postprocess(self, predictions, labels):
-        """对齐预测结果与真实标签"""
+    def _postprocess(self, predictions, labels)->Tuple[List[List[str]], List[List[str]]]:
+        """对齐预测结果与真实标签
+        
+        prediction.shape = List[(seq_len)]
+        
+        labels.shape = List[(seq_len)]
+        
+        """
         true_predictions = []
         true_labels = []
         
@@ -76,6 +82,10 @@ class NEREvaluator:
         self.metrics['strict']['TP'] += len(strict_matches)
         self.metrics['strict']['FP'] += len(pred_entities - strict_matches)
         self.metrics['strict']['FN'] += len(true_entities - strict_matches)
+        
+        
+        # 精确匹配，非严格模式
+        
         
         # 部分匹配
         partial_matches = []
@@ -178,20 +188,38 @@ class NEREvaluator:
                 
                 # 前向传播
                 outputs = self.model(**inputs)
-                logits = outputs[0].to(torch.float16).detach().cpu().numpy()
+                logits = outputs[0][0].to(torch.float16).detach().cpu().numpy() # shape = (seq_len, num_ner_labels)
+
+                # print("logits.shape = ", logits.shape)
                 
                 # 获取预测结果
-                preds = np.argmax(logits, axis=2).squeeze(0)
-                labels = features['labels']
+                preds = np.argmax(logits, axis=1) # shape = (seq_len, )
+                # print("preds.shape = ", preds.shape)
+                labels = features['labels'] # shape = (seq_len, )
                 
                 all_preds.append(preds)
                 all_labels.append(labels)
+                
+        print("最后一组预测值和标签： ")
+        # print("preds = ", all_preds[-1])
+        # print("labels = ", all_labels[-1])
         
         # 处理结果
         pred_sequences, label_sequences = self._postprocess(all_preds, all_labels)
         
+        
+        print("pred_sequences[-1] = ", pred_sequences[-1])
+        print("label_sequences[-1] = ", label_sequences[-1])
+        
         # 计算指标
         results = {}
+        
+        from sklearn.metrics import f1_score
+        flat_preds = [p for seq in pred_sequences for p in seq]
+        flat_labels = [l for seq in label_sequences for l in seq]
+        f1 = f1_score(flat_labels, flat_preds, average='macro')  # 使用macro平均
+        results[f'{metric_key_prefix}_f1_score'] = f1
+        
         
         # 1. seqeval标准报告
         results['classification_report'] = classification_report(

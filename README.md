@@ -290,6 +290,34 @@ for mode in ['strict', 'partial', 'type_only']:
 ```
 
 
+
+## 评测结果 (Bert-MoE-Qwen2-CRF v.s. Bert-CRF)
+
+- `Bert-CRF`:
+
+| Model | Avg-Precision | Avg-Recall |   Macro-F1   |  Micro-F1 |  
+|----------|----------|----------|----------|------------|
+| BiLSTM+CRF |0.634867 | 0.489829 |  0.548224   | 0.657138 |
+| Bert+CRF | 0.416666 | 0.229813 | 0.282876 | 0.406775 |
+
+
+
+
+
+
+- `Bert-MoE-Qwen2-CRF`:
+| Model    |  strict-precision   |  strict-recall |  token-accuracy |  macro-f1 | strict-f1 |
+|----------|----------|----------|----------|-----------|-----------|
+| Bert+MoE+Qwen2+CRF | 0.026 | 0.082 | 0.503 | 0.067 | 0.039 |
+
+
+
+
+
+
+
+
+
 ## 预测结果
 - 测试用例：“你是什么人？”
 - 使用 `viterbi`
@@ -397,6 +425,10 @@ for mode in ['strict', 'partial', 'type_only']:
 ]
 
 ```
+
+
+
+
 
 
 

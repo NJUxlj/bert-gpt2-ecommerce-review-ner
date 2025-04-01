@@ -262,7 +262,7 @@ class HybridModelTrainer:
             lora_dropout=0.05,
             bias="none",
             modules_to_save=["classifier"],  # 分类头保持可训练
-            layers_to_transform=list(range(8,12))  # 仅微调深层
+            layers_to_transform=list(range(4,12))  # 仅微调深层
         )
         
         return get_peft_model(model, lora_config), tokenizer
@@ -283,6 +283,10 @@ class HybridModelTrainer:
                 "stage3_max_live_parameters": 1e9,  
                 "stage3_max_reuse_distance": 1e9  
             },  
+            # "checkpoint": {  
+            #     "tag_checkpoint": True,  
+            #     "load_checkpoint": "./output/checkpoint-500",  
+            # },  
             # 推荐使用bf16代替fp16 (根据硬件支持情况)  
             "bf16": {  
                 "enabled": True,  

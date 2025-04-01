@@ -183,27 +183,33 @@ def test_evaluator():
 
     
     # 初始化组件
-    processor = SimpleNERDataProcessor(SCHEMA_PATH)
     tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_PATH)
-    model = BertMoEQwen2CRF(BertConfig(), Qwen2Config(), NerConfig())
+    
+    simple_processor = SimpleNERDataProcessor(SCHEMA_PATH)
+    
+    processor = NERDataProcessor(tokenizer)
+    
+    model = BertMoEQwen2CRF(BertConfig.from_pretrained(BERT_MODEL_PATH), Qwen2Config.from_pretrained(QWEN2_MODEL_PATH), NerConfig())
+    
+    eval_dataset = processor.load_hf_data(PROCESSED_CHINESE_NER_DATA_PATH, "validation").select(range(10))
     
     # 加载测试数据
-    test_examples = processor.get_test_examples("data/test.txt")
+    # test_examples = processor.get_test_examples("data/test.txt")
     
     # 实例化评估器
     evaluator = NEREvaluator(model, processor, tokenizer)
     
     # 运行评估
-    results = evaluator.evaluate(test_examples)
+    results = evaluator.evaluate(eval_dataset)
     
     print("===== 分类报告 =====")
     print(results['classification_report'])
     
     print("\n===== 综合指标 =====")
-    print(f"Token准确率: {results['token_accuracy']:.4f}")
-    print(f"严格F1: {results['strict_f1']:.4f}")
-    print(f"部分匹配F1: {results['partial_f1']:.4f}")
-    print(f"仅类型F1: {results['type_only_f1']:.4f}")
+    print(f"Token准确率: {results['eval_token_accuracy']:.4f}")
+    print(f"严格F1: {results['eval_strict_f1']:.4f}")
+    print(f"部分匹配F1: {results['eval_partial_f1']:.4f}")
+    print(f"仅类型F1: {results['eval_type_only_f1']:.4f}")
 
 
 
@@ -217,6 +223,8 @@ if __name__ == "__main__":
     # test_ner_dataset()
     
     test_trainer()
+    
+    # test_evaluator()
     
     
     # test_predict()

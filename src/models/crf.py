@@ -724,14 +724,14 @@ class CRF(nn.Module):
             ```python
             [
                 [  # 第一个样本的候选
-                    (tensor([0.1, 0.2, 0.3]), [0]),  # 标签0候选
-                    (tensor([0.4, 0.5, 0.6]), [1]),  # 标签1候选 
-                    (tensor([0.7, 0.8, 0.9]), [2])   # 标签2候选
+                    (0.9, [0]),  # 标签0候选
+                    (0.8, [1]),  # 标签1候选 
+                    (0.85, [2])   # 标签2候选
                 ],
                 [  # 第二个样本的候选
-                    (tensor([1.1, 1.2, 1.3]), [0]),
-                    (tensor([1.4, 1.5, 1.6]), [1]),
-                    (tensor([1.7, 1.8, 1.9]), [2])
+                    (0.9, [0]),
+                    (0.8, [1]),
+                    (0.8, [2])
                 ]
             ]
             ```
@@ -752,13 +752,13 @@ class CRF(nn.Module):
                 '''
                 beams[i] 的形状如下：
                      [  # 第一个样本的候选
-                    (tensor([0.1, 0.2, 0.3]), [0]),  # 标签0候选
-                    (tensor([0.4, 0.5, 0.6]), [1]),  # 标签1候选 
-                    (tensor([0.7, 0.8, 0.9]), [2])   # 标签2候选
+                    (0.8, [0]),  # 标签0候选
+                    (0.9, [1]),  # 标签1候选 
+                    (0.9, [2])   # 标签2候选
                 ],
                 '''
                     
-                for score, tags in beams[i]:
+                for score, tags in beams[i]: # tags =[0, 3, 5, 6, 7]
                     # Expand each beam with all possible next tags
                     for tag in range(num_tags):
                         new_score = score + self.transitions[tags[-1], tag] + emissions[t, i, tag]
