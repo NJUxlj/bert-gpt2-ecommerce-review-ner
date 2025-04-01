@@ -372,6 +372,9 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
             # 使用CRF解码获取预测标签
             preds = self.crf.decode(logits, mask=attention_mask.byte(), decode_method=decode_method)
             preds = preds[0]  # 取batch中的第一个样本
+            
+            if decode_method=="beam_search":
+                preds  =preds[0] # 取第一个beam的第一个序列
     
     
         # 提取实体
@@ -380,6 +383,7 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids.squeeze().tolist())
         
         for i, (token, tag_id) in enumerate(zip(tokens, preds)):
+            # print("tag_id = ", tag_id)
             # 此处需要根据实际标签定义转换id到标签（如BIO/BILOU格式）
             tag = self.id2label[tag_id]  # 需要用户提供id2label映射
             

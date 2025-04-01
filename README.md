@@ -7,6 +7,8 @@
 - 我们将这个拼接起来的模型称之为 `Bert-MoE-Qwen2-CRF`
 - 然后，再使用LoRA对`Bert-MoE-Qwen2-CRF`模型在NER任务上进行微调。
 
+- CRF模型默认使用 维特比解码
+
 
 
 ## 模型架构设计
@@ -100,7 +102,7 @@ bert-gpt2-ecommerce-review-ner
 │       |—— ner_trainer.py   # 主训练类
 |—— main.py # 主训练文件， 用来调用所有在src中封装好的API
 
-
+```
 
 
 ## Dataset
@@ -289,11 +291,116 @@ for mode in ['strict', 'partial', 'type_only']:
 
 
 ## 预测结果
-
+- 测试用例：“你是什么人？”
+- 使用 `viterbi`
 ![prediction result](image/prediction_result.png)
 
+- 使用 `beam search`
+![prediction result](image/prediction_result2.png)
 
-## Citation
+
+
+- 测试用例2：
+```
+1. 挖到宝了！这家店铺让我惊喜连连, 商品品质与服务都堪称一流, 真心推荐给大家
+2. 在这里购物, 体验太棒了！商品品质上乘, 远超预期, 服务也贴心周到, 真心不错
+3. 购物体验超赞。商品质量上乘,服务周到
+4. 这家店铺真不错。装潢雅致有格调,小物摆放讲究
+5. 整体感受非常好,毫无瑕疵,强烈推荐
+```
+
+- 使用 beam_search
+
+```json
+
+[
+  {
+    "[CLS]": {
+      "start_pos": 0,
+      "end_pos": 0,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "超": {
+      "start_pos": 61,
+      "end_pos": 61,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "错": {
+      "start_pos": 76,
+      "end_pos": 76,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "购": {
+      "start_pos": 79,
+      "end_pos": 79,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "装": {
+      "start_pos": 107,
+      "end_pos": 107,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "潢": {
+      "start_pos": 108,
+      "end_pos": 108,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "整": {
+      "start_pos": 123,
+      "end_pos": 123,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "体": {
+      "start_pos": 124,
+      "end_pos": 124,
+      "entity_type": "XH"
+    }
+  },
+  {
+    "感": {
+      "start_pos": 125,
+      "end_pos": 125,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "常": {
+      "start_pos": 128,
+      "end_pos": 128,
+      "entity_type": "HCCX"
+    }
+  },
+  {
+    "好": {
+      "start_pos": 129,
+      "end_pos": 129,
+      "entity_type": "HCCX"
+    }
+  },
+  
+  ...  太长了省略
+
+]
+
+```
+
+
+
+ Citation
 
 - 暂时没有
 

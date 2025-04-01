@@ -570,7 +570,8 @@ class CRF(nn.Module):
 
         # Start transition and first emission
         # shape: (batch_size, num_tags)
-        score = self.start_transitions + emissions[0] # 第一个序列位置上的发射分数 + 开始转移分数
+        score = self.start_transitions + emissions[0] # 第一个序列位置上的发射分数 + 开始转移分数    # 初始运费 = 始发站费用 + 第一站运费  
+        
         history = []
 
         # score is a tensor of size (batch_size, num_tags) where for every batch,
@@ -584,23 +585,25 @@ class CRF(nn.Module):
         for i in range(1, seq_length):
             # Broadcast viterbi score for every possible next tag
             # shape: (batch_size, num_tags, 1)
-            broadcast_score = score.unsqueeze(2)
+            broadcast_score = score.unsqueeze(2)   # 当前各路线成本  
 
             # Broadcast emission score for every possible current tag
             # shape: (batch_size, 1, num_tags)
-            broadcast_emission = emissions[i].unsqueeze(1)
+            broadcast_emission = emissions[i].unsqueeze(1)   # 下一站处理费  
 
             # Compute the score tensor of size (batch_size, num_tags, num_tags) where
             # for each sample, entry at row i and column j stores the score of the best
             # tag sequence so far that ends with transitioning from tag i to tag j and emitting
             # shape: (batch_size, num_tags, num_tags)
-            next_score = broadcast_score + self.transitions + broadcast_emission
+            
+            # 计算总成本 = 当前成本 + 转运费 + 下一站处理费   
+            next_score = broadcast_score + self.transitions + broadcast_emission  # shape = (bsz, num_tags, num_tags)
 
             # Find the maximum score over all possible current tag
             # shape: (batch_size, num_tags)
-            next_score, indices = next_score.max(dim=1)   
-            # indices.shape = (batch_size,)
-            # next_score.shape = (batch_size, num_tags)
+            next_score, indices = next_score.max(dim=1)     # 选择最优前驱路线    # 找出最低成本（效益最大）的上一站   # 这个操作会找出对于每个样本和每个可能的下一标签，从哪个当前标签转移过来的分数最高
+            # indices.shape = (batch_size, num_tags)    # 保存了达到最高分数时对应的前一个标签的索引
+            # next_score.shape = (batch_size, num_tags)  # 保存了每个样本每个标签的最高分数
 
             # Set score to the next score if this timestep is valid (mask == 1)
             # and save the index that produces the next score
@@ -610,7 +613,7 @@ class CRF(nn.Module):
 
         # End transition score
         # shape: (batch_size, num_tags)
-        score += self.end_transitions
+        score += self.end_transitions  # 存储每个序列最后一个时间步各标签的累积分数
 
         # Now, compute the best path for each sample
 
@@ -618,16 +621,21 @@ class CRF(nn.Module):
         seq_ends = mask.long().sum(dim=0) - 1
         best_tags_list = []
 
+        # viterbi的回溯部分，用于从历史记录中重建最优标签序列。
         for idx in range(batch_size):
             # Find the tag which maximizes the score at the last timestep; this is our best tag
             # for the last timestep
-            _, best_last_tag = score[idx].max(dim=0)
+            # 从最后一个时间步的分数中找到最高分对应的标签索引
+            _, best_last_tag = score[idx].max(dim=0)  # max()返回一个 (max_scores, max_indices)
             best_tags = [best_last_tag.item()]
 
             # We trace back where the best last tag comes from, append that to our best tag
             # sequence, and trace it back again, and so on
-            for hist in reversed(history[:seq_ends[idx]]):
-                best_last_tag = hist[idx][best_tags[-1]]  # 获取前一个时间步的 best tag
+            
+            # 从后向前遍历历史记录
+            # hist.shape = (bsz, num_tags)  # 存储了该时间步各标签的最优前驱
+            for hist in reversed(history[:seq_ends[idx]]):   # history.type = List[tensor], history.shape= List[(batch_size, num_tags) ]， 存储了每个时间步的转移索引
+                best_last_tag = hist[idx][best_tags[-1]]  # 根据当前标签找到前一个最优标签
                 best_tags.append(best_last_tag.item())
 
             # Reverse the order because we start from the last timestep
@@ -667,22 +675,88 @@ class CRF(nn.Module):
 
         # Initialize beams: (batch_size, beam_size)
         # Each beam contains (score, [tag_sequence])
-        beams = [[(self.start_transitions + emissions[0, i], [tag]) 
-                 for tag in range(num_tags)] 
-                 for i in range(batch_size)]
+            # 功能：为每个序列初始化所有可能的起始标签候选
+                # start_transition.shape =  (num_tags,)   # 对每个序列i, 计算从开始状态到所有可能第一个标签的总分数
+                # emissions.shape = (seq_length, batch_size, num_tags)
+                # emissions[0, i].shape = (num_tags,), 表示第i个序列在第一个时间步的所有标签的发射分数 
+                        # 例如：emissions[3, 0, 1]表示：
+                            # 第3个时间步
+                            # 批次中第0个序列
+                            # 标签1的发射分数
+                            
+        # 初始化时应该为每个标签计算单独的分数：
+        beams = [[(self.start_transitions[tag] + emissions[0, i, tag], [tag]) 
+                 for tag in range(num_tags)]   # 为每个序列创建所有可能的起始标签候选
+                 for i in range(batch_size)]  # 处理批次中的每个序列
         
         # Sort and select top-k beams for each batch
-        beams = [sorted(batch_beams, key=lambda x: x[0][tag], reverse=True)[:beam_size]
-                for batch_beams, tag in zip(beams, range(batch_size))]
+              # x = Tuple[score, tag_list]
+              # x[0] 是一个在 所有 tag上的概率分布 = [tag1概率, tag2概率, tag3概率]， 这里的概率是指在某个tag上的转出概率
+              # x[0] 是一个张量，表示当前候选序列的分数。
+              # x[0].max() 的作用是：
+                    # 从所有可能的标签中，选择 分数最高的标签 作为当前候选序列的扩展方向。
+        beams = [
+                    sorted(batch_beams, key=lambda x:x[0], reverse=True)[:beam_size]
+                    for batch_beams in beams
+                ]
+        
+        '''
+        beam: 
+            - 外层列表长度：batch_size（批处理大小）
+            - 内层列表长度：num_tags（标签数量）
+            - 每个元素是一个元组 (score_tensor, tag_list)
+            
+        List[  # 批处理维度
+            List[  # 标签候选维度
+                Tuple[
+                    torch.Tensor,  # 分数张量，形状为(num_tags,), 表示
+                    List[int]      # 标签序列，初始只包含1个标签
+                ]
+            ]
+        ]
+        
+        
+        假设：
+            batch_size = 2
+            num_tags = 3
+
+            则 beams 的结构类似：
+            ```python
+            [
+                [  # 第一个样本的候选
+                    (tensor([0.1, 0.2, 0.3]), [0]),  # 标签0候选
+                    (tensor([0.4, 0.5, 0.6]), [1]),  # 标签1候选 
+                    (tensor([0.7, 0.8, 0.9]), [2])   # 标签2候选
+                ],
+                [  # 第二个样本的候选
+                    (tensor([1.1, 1.2, 1.3]), [0]),
+                    (tensor([1.4, 1.5, 1.6]), [1]),
+                    (tensor([1.7, 1.8, 1.9]), [2])
+                ]
+            ]
+            ```
+        '''
 
         for t in range(1, seq_length):
-            new_beams = [[] for _ in range(batch_size)]
+            new_beams = [
+                            [] 
+                            for _ in range(batch_size)
+                        ]  # 为每个序列分配一个列表， 
             
             for i in range(batch_size):
-                if not mask[t, i]:
+                if not mask[t, i]:   # mask.shape = [seq_len, bsz]
                     # If mask is 0, keep the same beams
                     new_beams[i] = beams[i]
                     continue
+                
+                '''
+                beams[i] 的形状如下：
+                     [  # 第一个样本的候选
+                    (tensor([0.1, 0.2, 0.3]), [0]),  # 标签0候选
+                    (tensor([0.4, 0.5, 0.6]), [1]),  # 标签1候选 
+                    (tensor([0.7, 0.8, 0.9]), [2])   # 标签2候选
+                ],
+                '''
                     
                 for score, tags in beams[i]:
                     # Expand each beam with all possible next tags
@@ -699,7 +773,7 @@ class CRF(nn.Module):
         final_beams = []
         for i in range(batch_size):
             batch_final = []
-            for score, tags in beams[i]:
+            for score, tags in beams[i]:  # 第i个样本 对应了好几条 tags（候选序列）
                 final_score = score + self.end_transitions[tags[-1]]
                 batch_final.append((final_score, tags))
             final_beams.append(batch_final)
@@ -707,7 +781,7 @@ class CRF(nn.Module):
         # Get top-k sequences for each batch
         top_sequences = []
         for i in range(batch_size):
-            batch_sequences = sorted(final_beams[i], key=lambda x: x[0], reverse=True)
+            batch_sequences = sorted(final_beams[i], key=lambda x: x[0], reverse=True)[:beam_size]
             top_sequences.append([seq for _, seq in batch_sequences])
 
         return top_sequences

@@ -156,7 +156,16 @@ def test_predict():
             ner_config=ner_config
         )
     
-    result = model.predict("你是什么人？")
+    query  = '''
+        1. 挖到宝了！这家店铺让我惊喜连连, 商品品质与服务都堪称一流, 真心推荐给大家
+        2. 在这里购物, 体验太棒了！商品品质上乘, 远超预期, 服务也贴心周到, 真心不错
+        3. 购物体验超赞。商品质量上乘,服务周到
+        4. 这家店铺真不错。装潢雅致有格调,小物摆放讲究
+        5. 整体感受非常好,毫无瑕疵,强烈推荐
+    
+    '''
+    
+    result = model.predict(query, decode_method = "beam_search")
 
     print("================================")
     
