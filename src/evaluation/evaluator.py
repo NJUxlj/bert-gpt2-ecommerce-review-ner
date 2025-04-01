@@ -214,11 +214,36 @@ class NEREvaluator:
         # 计算指标
         results = {}
         
-        from sklearn.metrics import f1_score
+        # from sklearn.metrics import f1_score
+        # flat_preds = [p for seq in pred_sequences for p in seq]
+        # flat_labels = [l for seq in label_sequences for l in seq]
+        # f1 = f1_score(flat_labels, flat_preds, average='macro')  # 使用macro平均
+        # results[f'{metric_key_prefix}_f1_score'] = f1
+        
         flat_preds = [p for seq in pred_sequences for p in seq]
         flat_labels = [l for seq in label_sequences for l in seq]
-        f1 = f1_score(flat_labels, flat_preds, average='macro')  # 使用macro平均
-        results[f'{metric_key_prefix}_f1_score'] = f1
+        
+        # 手动计算F1-score
+        unique_labels = set(flat_labels + flat_preds)
+        f1_scores = []
+        
+        for label in unique_labels:
+            if label == 'O':  # 通常不计算'O'标签的F1
+                continue
+                
+            tp = sum((p == label) & (l == label) for p, l in zip(flat_preds, flat_labels))
+            fp = sum((p == label) & (l != label) for p, l in zip(flat_preds, flat_labels))
+            fn = sum((p != label) & (l == label) for p, l in zip(flat_preds, flat_labels))
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            
+            f1_scores.append(f1)
+        
+        # 计算macro平均F1
+        macro_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0
+        results[f'{metric_key_prefix}_f1_score'] = macro_f1
         
         
         # 1. seqeval标准报告

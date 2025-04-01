@@ -320,7 +320,7 @@ class BertMoEQwen2CRF(BertMoEQwen2PreTrainedModel):
             labels  = self._preprocess_labels(labels, self.ner_config)
             # 使用CRF计算损失
             # print("CRF start")
-            loss = -self.crf.forward(logits, labels, mask=attention_mask)
+            loss = -self.crf.forward(logits, labels, mask=attention_mask, reduction='mean')
             # print("CRF end !!!")
             
             # loss_fct = nn.CrossEntropyLoss()

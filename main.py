@@ -112,6 +112,7 @@ def test_trainer(ner_data_type = "chinese_ner_sft"):
         bert_config=bert_config,
         qwen2_config=qwen2_config,
         ner_config=ner_config,
+        model_type = "bert_crf"        # "bert_moe_qwen2_crf"
     )
     
     tokenizer = trainer.tokenizer

@@ -242,7 +242,7 @@ python main.py
 - 我先把部分结果截图放在这里，以后再补充。
 ![training](image/training_snapshot.png)
 
-![training](image/training_snapshot2.png)
+![training](image/training_snapshot3.png)
 
 
 
@@ -250,7 +250,12 @@ python main.py
 
 ![Decoding](image/decode_method.png)
 
-## NER 评测指标
+
+## 如何切换模型？ 
+![SwitchModel](image/switch_model.png)
+
+
+## NER 评测指标解释
 
 1. **seqeval标准报告**：通过 `classification_report` 函数计算，使用 `IOB2` 方案和严格模式。
 ```python
@@ -267,10 +272,10 @@ flat_preds = [p for seq in pred_sequences for p in seq]
 flat_labels = [l for seq in label_sequences for l in seq]
 results['token_accuracy'] = accuracy_score(flat_labels, flat_preds)
 ```
-3. **细粒度实体评估**：
-    - **精确匹配（严格模式）**：计算精确匹配的实体数量，包括 `TP`（真正例）、`FP`（假正例）、`FN`（假反例），并计算 `precision`（精确率）、`recall`（召回率）和 `f1` 分数。
-    - **部分匹配**：计算部分匹配的实体数量，同样计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
-    - **仅类型匹配**：计算仅类型匹配的实体数量，计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
+3. **3种细粒度entity评估方法**：
+    - **精确匹配（strict模式）**：计算精确匹配的实体数量，包括 `TP`（真正例）、`FP`（假正例）、`FN`（假反例），并计算 `precision`（精确率）、`recall`（召回率）和 `f1` 分数。
+    - **部分匹配 （partial）**：计算部分匹配的实体数量，同样计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
+    - **仅类型匹配 （type_only）**：计算仅类型匹配的实体数量，计算 `TP`、`FP`，并计算 `precision`、`recall` 和 `f1` 分数。
 
 ```python
 for mode in ['strict', 'partial', 'type_only']:
@@ -293,7 +298,8 @@ for mode in ['strict', 'partial', 'type_only']:
 
 ## 评测结果 (Bert-MoE-Qwen2-CRF v.s. Bert-CRF)
 
-- `Bert-CRF`:
+- `Bert-CRF` [无transformers的手动训练版本, 且使用简单数据集]:
+  - 原项目地址： [ner-bert-crf](https://github.com/NJUxlj/ner-bert-crf.git)
 
 | Model | Avg-Precision | Avg-Recall |   Macro-F1   |  Micro-F1 |  
 |----------|----------|----------|----------|------------|
@@ -302,14 +308,18 @@ for mode in ['strict', 'partial', 'type_only']:
 
 
 
+- `Bert-CRF` [在本项目中定义的]:
 
+| Model    |  strict-precision   |  strict-recall |  token-accuracy |  macro-f1 | strict-f1 |
+|----------|----------|----------|----------|-----------|-----------|
+| Bert-CRF | 0.026 | 0.024 | 0.469 | 0.019 | 0.025 |
 
 
 - `Bert-MoE-Qwen2-CRF`:
 
 | Model    |  strict-precision   |  strict-recall |  token-accuracy |  macro-f1 | strict-f1 |
 |----------|----------|----------|----------|-----------|-----------|
-| Bert+MoE+Qwen2+CRF | 0.026 | 0.082 | 0.503 | 0.067 | 0.039 |
+| Bert-MoE-Qwen2-CRF | 0.026 | 0.082 | 0.503 | 0.067 | 0.039 |
 
 
 

@@ -198,7 +198,7 @@ class HybridModelTrainer:
                 self.config = json.load(f)
         
         # 初始化模型和分词器
-        self.model, self.tokenizer = self._initialize_model()
+        self.model, self.tokenizer = self._initialize_model(model_type)
         self.data_collator = DataCollatorForTokenClassification(
             tokenizer=self.tokenizer,
             padding='longest',
@@ -247,18 +247,22 @@ class HybridModelTrainer:
             )
             tokenizer = AutoTokenizer.from_pretrained(self.config['bert_model_name'])
             
+        
+        print("Model modules:", [name for name, _ in model.named_modules()])  
+        
+        
+        target_modules = []
+        if model_type == "bert_moe_qwen2_crf":
+            target_modules = ["q_proj","k_proj", "v_proj"]
+        else:
+            target_modules = ["query", "key", "value"]
+            
             
         # 分层LoRA配置
         lora_config = LoraConfig(
             r=self.config['lora_rank'],
             lora_alpha=32,
-            target_modules=[
-                # "encoder.layer.*.attention",  # BERT的注意力层
-                # "decoder.layers.*.self_attn",  # Qwen2的注意力层
-                # "decoder.layers.*.cross_attn"  # 跨注意力层（如果有）
-                "q_proj","k_proj", "v_proj"
-                # "query", "key", "value"
-            ],
+            target_modules=target_modules,
             lora_dropout=0.05,
             bias="none",
             modules_to_save=["classifier"],  # 分类头保持可训练
@@ -354,7 +358,7 @@ class HybridModelTrainer:
             weight_decay=0.01,
             deepspeed=self._ds_config(),
             report_to=[],
-            load_best_model_at_end=True,
+            load_best_model_at_end=False,
             metric_for_best_model="eval_strict_f1",
             greater_is_better=True,
             remove_unused_columns=False,

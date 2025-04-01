@@ -100,7 +100,7 @@ class TorchModel(BaseModel):
 			else:
 				return predict
 
-class BertCRFModel():
+class BertCRFModel(nn.Module):
 	'''
 		基于BERT的CRF模型
 	'''
@@ -112,22 +112,37 @@ class BertCRFModel():
 			"hidden_size": bert_config.hidden_size,
 			"dropout": bert_config.hidden_dropout_prob
 		}
-  
+		self.ner_config = ner_config
 		self.bert = BertModel.from_pretrained(self.config["bert_model_path"], return_dict = False)
 		self.classifier = nn.Linear(self.config["hidden_size"], self.config["class_num"])
 		self.crf = CRF(self.config['class_num'], batch_first=True)
+  
+  
+	def _preprocess_labels(self, labels, ner_config:NerConfig):  
+		valid_label_id = ner_config.label2id["O"]  # 假设用'O'作为填充标签的替代  
+		return torch.where(labels == -100, valid_label_id, labels)  
+  
+  
 	def forward(self, input_ids, attention_mask = None, labels = None):
+     
+     
 		sequence_output, _ = self.bert(input_ids) # (batch_size, seq_len, hidden_size)
 		# print("sequence_output = \n", sequence_output)
 		
 		predicts = self.classifier(sequence_output) # (batch_size, seq_len, class_num)
+  
+		output = (predicts,)
 
 		if labels!=None: # 计算CRF Loss
-			mask = labels.gt(-1)
-			loss = self.crf(predicts, labels, mask, reduction='mean') # (batch_size, seq_len, class_num)
-			return -loss
+			mask = labels.gt(-100)
+			# 强制将第一个时间步的 mask 设为 1  
+			mask[:, 0] = 1  
+			labels  = self._preprocess_labels(labels, self.ner_config)
+			loss = -self.crf(predicts, labels, mask, reduction='mean') # (batch_size, seq_len, class_num)
+			return (loss,)+output
 		else:
-			return self.crf.decode(predicts) # (batch_size, seq_len)
+			# return self.crf.decode(predicts) # (batch_size, seq_len)
+			return output
 	
   
 class WholeSentenceNERModel(nn.Module):
