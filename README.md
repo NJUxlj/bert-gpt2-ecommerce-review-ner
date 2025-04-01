@@ -306,6 +306,7 @@ for mode in ['strict', 'partial', 'type_only']:
 
 
 - `Bert-MoE-Qwen2-CRF`:
+
 | Model    |  strict-precision   |  strict-recall |  token-accuracy |  macro-f1 | strict-f1 |
 |----------|----------|----------|----------|-----------|-----------|
 | Bert+MoE+Qwen2+CRF | 0.026 | 0.082 | 0.503 | 0.067 | 0.039 |
