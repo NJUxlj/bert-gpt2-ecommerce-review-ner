@@ -16,7 +16,7 @@ from tqdm import tqdm
 from collections import defaultdict
 
 
-from typing import Union, List, Dict, Tuple, Optional, Callable
+from typing import Union, List, Dict, Tuple, Optional, Callable, Set
 
 
 from src.data.data_preprocess import NERDataProcessor
@@ -100,7 +100,7 @@ class NEREvaluator:
         self.metrics['type_only']['FP'] += len(pred_entities) - len(type_only)
 
     @staticmethod
-    def _get_entities(seq):
+    def _get_entities(seq)->Set[Tuple]:
         """从BIO序列中提取实体"""
         entities = []
         current_entity = None
@@ -115,7 +115,7 @@ class NEREvaluator:
                     current_entity['end'] = i
                 else:
                     if current_entity:
-                        entities.append(current_entity)
+                        entities.append(current_entity) # 当前I标签的类型与当前实体不同，则赶紧保存当前实体，并且开始记录一个新的实体
                     current_entity = None
             else:
                 if current_entity:
@@ -140,16 +140,16 @@ class NEREvaluator:
         overlap_end = min(pred_end, true_end)
         return (overlap_start < overlap_end) and (pred_type == true_type)
 
-    def evaluate(self, dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         self.model.eval()
         all_preds = []
         all_labels = []
         
-        print("eval dataset structure:", dataset)  
-        print("eval dataset features  =", dataset.features)
+        print("eval dataset structure:", eval_dataset)  
+        # print("eval dataset features  =", dataset.features)
         
         with torch.no_grad():
-            for example in tqdm(dataset, desc="Evaluating"):
+            for example in tqdm(eval_dataset, desc="Evaluating"):
                 
                 # print("example = ", example)
                 
@@ -204,7 +204,7 @@ class NEREvaluator:
         # 2. Token级别准确率
         flat_preds = [p for seq in pred_sequences for p in seq]
         flat_labels = [l for seq in label_sequences for l in seq]
-        results['eval_token_accuracy'] = accuracy_score(flat_labels, flat_preds)
+        results[f'{metric_key_prefix}_token_accuracy'] = accuracy_score(flat_labels, flat_preds)
         
         # 3. 细粒度实体评估
         for pred_seq, true_seq in zip(pred_sequences, label_sequences):
@@ -221,10 +221,12 @@ class NEREvaluator:
             f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
             
             results.update({
-                f'eval_{mode}_precision': precision,
-                f'eval_{mode}_recall': recall,
-                f'eval_{mode}_f1': f1
+                f'{metric_key_prefix}_{mode}_precision': precision,
+                f'{metric_key_prefix}_{mode}_recall': recall,
+                f'{metric_key_prefix}_{mode}_f1': f1
             })
+            
+        print("eval results = \n", results)
         
         return results
 

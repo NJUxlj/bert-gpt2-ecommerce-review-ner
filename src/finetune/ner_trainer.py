@@ -16,8 +16,9 @@ import swanlab
 from swanlab import finish
 
 
+import logging
 
-
+logger = logging.getLogger(__file__)
 
 from transformers import TrainerCallback 
 from peft import LoraConfig, get_peft_model
@@ -49,6 +50,8 @@ from src.models.enc_dec_model import BertMoEQwen2CRF
 from src.models.bert.configuration_bert import BertConfig
 from src.models.qwen2.configuration_qwen2 import Qwen2Config
 from src.models.enc_dec_model import NerConfig
+
+from src.models.bert_ner_model import BertCRFModel
 
 from src.data.simple_data_preprocess import SimpleNERDataProcessor
 from src.data.data_preprocess import NERDataProcessor
@@ -137,14 +140,21 @@ class EnhancedTrainer(Trainer):
         eval_results = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)  
         # eval_results = {}
         # 执行扩展评估  
-        extended_metrics = self.evaluator.evaluate(eval_dataset)  
+        extended_metrics:Dict = self.evaluator.evaluate(eval_dataset)  
         
         # 合并指标  
         eval_results.update({  
-            "eval_strict_f1": extended_metrics["eval_strict_f1"],  
-            "eval_partial_f1": extended_metrics["eval_partial_f1"],  
-            "eval_token_acc": extended_metrics["eval_token_accuracy"]  
+            f"{metric_key_prefix}_strict_f1": extended_metrics[f"{metric_key_prefix}_strict_f1"],  
+            f"{metric_key_prefix}_partial_f1": extended_metrics[f"{metric_key_prefix}_partial_f1"],  
+            f"{metric_key_prefix}_token_accuracy": extended_metrics[f"{metric_key_prefix}_token_accuracy"]  
         })  
+        
+        # eval_results.update(
+        #     extended_metrics
+        # )
+        
+        logger.info("evaluator eval results: \n")
+        logger.info(eval_results)
         
         return eval_results 
 
@@ -162,9 +172,10 @@ class HybridModelTrainer:
         swan_config = None,
         bert_config: BertConfig = None,
         qwen2_config: Qwen2Config = None,
-        ner_config: NerConfig = None
+        ner_config: NerConfig = None,
+        model_type: Literal["bert_moe_qwen2_crf", "bert_crf"] = "bert_moe_qwen2_crf"
         ):
-        
+        self.model_type = model_type
         self.bert_config = bert_config or BertConfig.from_pretrained(BERT_MODEL_PATH)
         self.qwen2_config = qwen2_config or Qwen2Config.from_pretrained(QWEN2_MODEL_PATH)
         self.ner_config = ner_config
@@ -214,19 +225,28 @@ class HybridModelTrainer:
             self.processor = SimpleNERDataProcessor(SCHEMA_PATH)
         
         
-    def _initialize_model(self):
+    def _initialize_model(self, model_type = "bert_moe_qwen2_crf"):
         """加载混合模型并应用LoRA"""
         # 加载基础模型
-        model = BertMoEQwen2CRF(
-            bert_config=self.bert_config,
-            qwen_config=self.qwen2_config,
-            ner_config=self.ner_config
-        )
-        tokenizer = AutoTokenizer.from_pretrained(self.config['bert_model_name'])
         
-        # 冻结MoE参数
-        for param in model.moe.parameters():
-            param.requires_grad = False
+        if model_type == "bert_moe_qwen2_crf":
+            model = BertMoEQwen2CRF(
+                bert_config=self.bert_config,
+                qwen_config=self.qwen2_config,
+                ner_config=self.ner_config
+            )
+            tokenizer = AutoTokenizer.from_pretrained(self.config['bert_model_name'])
+            
+            # 冻结MoE参数
+            for param in model.moe.parameters():
+                param.requires_grad = False
+        else:
+            model = BertCRFModel(
+                bert_config=self.bert_config,
+                ner_config=self.ner_config
+            )
+            tokenizer = AutoTokenizer.from_pretrained(self.config['bert_model_name'])
+            
             
         # 分层LoRA配置
         lora_config = LoraConfig(
@@ -331,7 +351,7 @@ class HybridModelTrainer:
             deepspeed=self._ds_config(),
             report_to=[],
             load_best_model_at_end=True,
-            metric_for_best_model="strict_f1",
+            metric_for_best_model="eval_strict_f1",
             greater_is_better=True,
             remove_unused_columns=False,
             fp16=False,
@@ -348,7 +368,8 @@ class HybridModelTrainer:
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=self.data_collator,
-            compute_metrics=self._compute_basic_metrics,  
+            # compute_metrics=self._compute_basic_metrics, 
+            compute_metrics = None,
             callbacks=[  
                 EarlyStoppingCallback(early_stopping_patience=3),  
             ]  
@@ -366,8 +387,9 @@ class HybridModelTrainer:
         # finally:
         #     finish()  
         #     os._exit(0)  
-
-        trainer.save_model(os.path.join(self.config['output_dir'], "hybrid_model"))
+        model_save_dir = os.path.join(self.config['output_dir'], "hybrid_model")
+        os.makedirs(model_save_dir, exist_ok=True)
+        trainer.save_model(model_save_dir)
         if torch.distributed.is_initialized():  
             torch.distributed.destroy_process_group()  
         return trainer

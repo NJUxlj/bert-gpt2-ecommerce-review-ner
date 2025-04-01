@@ -216,7 +216,7 @@ def main():
 if __name__ == "__main__":
     # test_ner_dataset()
     
-    # test_trainer()
+    test_trainer()
     
     
-    test_predict()
+    # test_predict()
